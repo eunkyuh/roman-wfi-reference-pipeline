@@ -7,7 +7,6 @@ import numpy as np
 import yaml
 from astropy.time import Time
 
-from wfi_reference_pipeline.utilities.simulate_reads import simulate_flat_reads
 from wfi_reference_pipeline.constants import (
     WFI_FRAME_TIME,
     WFI_MODE_WIM,
@@ -20,7 +19,7 @@ from wfi_reference_pipeline.constants import (
     WFI_REF_OPTICAL_ELEMENT_F184,
     WFI_REF_OPTICAL_ELEMENT_F213,
 )
-
+from wfi_reference_pipeline.utilities.simulate_reads import simulate_flat_reads
 
 FLAT_FILTERS = [
     WFI_REF_OPTICAL_ELEMENT_F062,
@@ -191,9 +190,9 @@ class FlatSimulation:
         current_time = self.start_time.copy()
 
         for filt in FLAT_FILTERS:
-            print(f"\n==============================")
+            print("\n==============================")
             print(f"Running filter {filt}")
-            print(f"==============================")
+            print("==============================")
 
             # ALL SCAs start together for this filter
             sca_times = {sca: current_time.copy() for sca in self.scas}
