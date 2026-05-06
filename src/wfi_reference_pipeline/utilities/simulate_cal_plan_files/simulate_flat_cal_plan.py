@@ -43,7 +43,7 @@ class FlatSimulation:
     flat = FlatSimulation(
     output_dir="/grp/roman/RFP/DEV/sim_inflight_calplan/romanisim_flats",
     config_file="simulate_flats_config.yml",
-    scas=[3],
+    scas=[3], or a list of specific detectors [1,5,8,12], or ALL by default
     num_exposures=5,
     truncate=20,
     flat_rate=1000,
