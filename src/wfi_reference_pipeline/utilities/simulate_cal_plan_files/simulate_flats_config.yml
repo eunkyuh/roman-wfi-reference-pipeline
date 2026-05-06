@@ -1,0 +1,38 @@
+defaults:
+  flat_rate_var: 5
+  num_low_qe_pix: 500
+  low_qe_rate: 0.85
+  noise_mean: 0.001
+  noise_var: 0.0005
+
+sca_overrides:
+
+  # =========================
+  # TOP ROW
+  # =========================
+  16: { l_flat_pseudo_factor: 0.88 }
+  13: { l_flat_pseudo_factor: 0.98 }
+  10: { l_flat_pseudo_factor: 1.08 }
+  1:  { l_flat_pseudo_factor: 1.08 }
+  4:  { l_flat_pseudo_factor: 0.98 }
+  7:  { l_flat_pseudo_factor: 0.88, num_low_qe_pix: 10000 }
+
+  # =========================
+  # MIDDLE ROW (highest)
+  # =========================
+  17: { l_flat_pseudo_factor: 0.92 }
+  14: { l_flat_pseudo_factor: 1.02 }
+  11: { l_flat_pseudo_factor: 1.12 }
+  2:  { l_flat_pseudo_factor: 1.12 }
+  5:  { l_flat_pseudo_factor: 1.02 }
+  8:  { l_flat_pseudo_factor: 0.92 }
+
+  # =========================
+  # BOTTOM ROW
+  # =========================
+  18: { l_flat_pseudo_factor: 0.86, noise_mean: 0.1, noise_var: 0.5 }
+  15: { l_flat_pseudo_factor: 0.96 }
+  12: { l_flat_pseudo_factor: 1.06 }
+  3:  { l_flat_pseudo_factor: 1.06, num_low_qe_pix: 10000, noise_mean: 0.1, noise_var: 0.5 }
+  6:  { l_flat_pseudo_factor: 0.96 }
+  9:  { l_flat_pseudo_factor: 0.86, flat_rate_var: 10 }
