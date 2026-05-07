@@ -6,10 +6,13 @@ from multiprocessing import Pool
 
 import asdf
 import numpy as np
+import math
+
 from astropy.io import fits
+from astropy.stats import sigma_clip
 
 from wfi_reference_pipeline.pipelines.dark_pipeline import DarkPipeline
-from wfi_reference_pipeline.reference_types.dark.dark import Dark
+from wfi_reference_pipeline.reference_types.readnoise.readnoise import ReadNoise
 from wfi_reference_pipeline.reference_types.flat.flat import Flat
 from wfi_reference_pipeline.resources.wfi_meta_fgs_mask import WFIMetaFGSMask
 
@@ -17,7 +20,13 @@ from ..reference_type import ReferenceType
 
 
 # SAPP TODO - should these flags be imported from romandatamodels, else stored someplace else?
-class Flags(np.uint32, Enum):
+# SRG: Add comments, put in order. Remove TFPN
+# How to coordinate w RDMT is more important than choosing a base for bitwi 
+class FGSFlags(np.uint32, Enum):
+    """
+    These are the flags that are used ONLY FOR THE FGS MASK.
+    For flags used in the SCIENCE BPM, see the roman_datamodels repo.
+    """
     GOOD = 0
     GW_AFFECTED_DATA = 2**4
     PERSISTENCE = 2**5
@@ -42,8 +51,10 @@ class FGSMask(ReferenceType):
     def __init__(
         self,
         meta_data,
-        file_list=None,
-        ref_type_data=None,
+        file_list=None, # TODO can this line be deleted since unused?
+        ref_type_data=None, # TODO can this line be deleted since unused?
+        superdark=None,
+        super_rate_image=None,
         outfile="roman_fgs_mask.asdf",
         clobber=False,
     ):
@@ -55,11 +66,16 @@ class FGSMask(ReferenceType):
         ----------
         meta_data: Object; default = None
             Object of meta information converted to dictionary when writing reference file.
-        file_list: List of strings; default = None
+        TODO: delete from docstring? file_list: List of strings; default = None
             List of file names with absolute paths. Intended for primary use during automated operations.
-        ref_type_data: numpy array; default = None
+        TODO: delete from docstring? ref_type_data: numpy array; default = None
             Input which can be image array or data cube. Intended for development support file creation or as input
             for reference file types not generated from a file list.
+        superdark: np.ndarray; default = None
+            The superdark that will be used to calculate the CDS noise and dark rate images.
+        super_rate_image: np.ndarray; default = None
+            This is dataproduct generated using flat-field exposures. It is a Super Flat that has been slope-fitted.
+            The super_rate_image is used to identify low QE, dead, and bad flat-field pixels.
         outfile: string; default = roman_flat.asdf
             File path and name for saved reference file.
         clobber: Boolean; default = False
@@ -73,11 +89,15 @@ class FGSMask(ReferenceType):
         # Access methods of base class ReferenceType
         super().__init__(
             meta_data=meta_data,
-            file_list=file_list,
-            ref_type_data=ref_type_data,
             outfile=outfile,
             clobber=clobber,
         )
+
+        self.superdark = superdark
+        self.super_rate_image = super_rate_image
+
+        # Creating an empty mask to be filled in
+        self.mask_image = np.zeros((4096, 4096), dtype=np.uint32)
 
         # Default meta creation for module specific ref type.
         if not isinstance(meta_data, WFIMetaFGSMask):
@@ -85,296 +105,157 @@ class FGSMask(ReferenceType):
                 f"Meta Data has reftype {type(meta_data)}, expecting WFIMetaFGSMask"
             )
         if len(self.meta_data.description) == 0:
-            self.meta_data.description = "Roman WFI fgs mask reference file."
+            self.meta_data.description = "Roman WFI FGS mask reference file."
 
-    def make_fgs_mask_image(self):
-        # Modify line below to run on all detectors
 
-        # SAPP TODO FIGURE OUT WHAT OF THESE ELEMENTS ARE ALREADY IN THE PREP PIPELINE
-        logging.info(f"Running FGS mask workflow on {det}")
+    def make_fgs_mask_image(self, do_sigma_clip=True, sig_clip_cds_low=5.0, sig_clip_cds_high=5.0, dead_sigma_thr=5.0, hot_thr=2.5, superhot_thr=20.0, high_cds_thr=11.0, low_qe_thr=0.3, bad_flat_thr=0.0):
 
-        basedir = f"/path/to/out/for/fgs-mask/{det}"
-        if not os.path.exists(basedir):
-            os.makedirs(basedir)
-
-        # List of raw darks and flats
-        shortdarks = glob.glob(
-            f"/roman/path/to/raw/OTP00639_TotalNoiseNoEWA_TV2a_R1_MCEB/**/*{det}*asdf"
-        )
-        flats = glob.glob(
-            f"/roman/path/to/raw/OTP00615_SmoothDarkptA_TV2a_R1_MCEB/**/*{det}*asdf"
-        )
-
-        # Getting the number of exposures expected for CAR-094
-        ndarks, nflats = 10, 30
-        shortdarks = shortdarks[:ndarks] if len(shortdarks) > ndarks else shortdarks
-        flats = flats[:nflats] if len(flats) > nflats else flats
-
-        logging.info("Short darks used: ", shortdarks)
-        logging.info("Flats used: ", flats)
-
-        # Performing IRRC correction
-        try:
-            outpath_flats = os.path.join(basedir, "irrc_corr/flats")
-            outpath_darks = os.path.join(basedir, "irrc_corr/darks")
-
-            # Create output directory for files run through romancal
-            if not os.path.exists(outpath_darks):
-                os.makedirs(outpath_flats, exist_ok=True)
-
-                os.makedirs(outpath_darks, exist_ok=True)
-
-            # Check if the files have already been IRRC corrected
-            files_exist = len(os.listdir(outpath_darks)) == ndarks and len(
-                os.listdir(outpath_flats)
-            ) == len(flats)
-
-            # If overwrite or the files don't exist, need to run romancal
-            if overwrite or not files_exist:
-                args = [(file, outpath_flats) for file in flats] + [
-                    (file, outpath_darks) for file in shortdarks
-                ]
-
-                with Pool(processes=NPROCESSES) as pool:
-                    _ = pool.starmap(
-                        run_romancal, args
-                    )  # SAPP TODO - This should be in the prep pipeline
-
-        except Exception as e:
-            logging.info(f"Error processing files: {e}")
-
-        finally:
-            if "pool" in locals():
-                pool.close()
-                pool.join()
-
-        logging.info("Finished running IRRC on all raw data used")
-
-        # Creating superdark from the short darks using the RFP superdark code
-        irrc_shortdarks = glob.glob(os.path.join(outpath_darks, f"*{det}*"))
-        superdark_path = os.path.join(basedir, "superdark.asdf")
-
-        nreads = 55
-
-        # Create the superdark if it doesn't already exist
-        if overwrite or not os.path.exists(superdark_path):
-            logging.info("Beginning superdark creation")
-
-            dark_pipe = DarkPipeline(det)
-            dark_pipe.prep_superdark_file(
-                full_file_list=irrc_shortdarks,
-                outfile=superdark_path,
-                full_file_num_reads=nreads,
-            )
-
-            logging.info("Finished generating superdark")
-
-        logging.info("Loading superdark")
-        with asdf.open(superdark_path, memmap=True) as af:
-            data = af["roman"]["data"]
-            superdark = data.value if hasattr(data, "value") else data
-            superdark = np.asarray(superdark)
-
-        # Creating ReadNoise object from superdark (for CDS noise + rate image)
-        cds_noise_path = os.path.join(basedir, "cds_noise.fits")
-        darkrate_image_path = os.path.join(basedir, "darkrate.fits")
-
-        logging.info("Computing CDS noise and fitting ramp to produce rate image")
-
-        # Generate data cube object
-        rn_cube = Dark.DarkDataCube(
-            superdark, self.meta_data.type
-        )  # TODO - you mentioned getting this from readnoise and not dark? Lets import from where we need it, does this work for sierra's needs?
-
-        # Prep CDS noise computations
-        rn_cube.fit_cube(degree=1)
-        rn_cube.make_ramp_model(order=1)
-
-        # Compute and write CDS noise image
-        compute_cds_noise_from_datacube(rn_cube, cds_noise_path)
-
-        # Write the dark rate image
-        fits.writeto(darkrate_image_path, data=rn_cube.rate_image, overwrite=True)
-
-        logging.info("CDS Noise and rate images created.")
-
-        # Creating normalized super slope image and super slope image
-        irrc_flats = glob.glob(os.path.join(outpath_flats, f"*{det}*"))
-
-        logging.info("Creating normalized slope image and super slope image")
-
-        # Creating superslope and norm superslope images
-        super_slope_image = create_super_slope_image(irrc_flats, multip=True)
-        normalized_image = create_normalized_image(irrc_flats, multip=True)
-
-        super_slope_path = os.path.join(basedir, "super_slope.fits")
-        normalized_image_path = os.path.join(basedir, "normalized_image.fits")
-
-        # Saving the super slope and normalized images
-        fits.writeto(super_slope_path, data=super_slope_image, overwrite=True)
-
-        fits.writeto(normalized_image_path, data=normalized_image, overwrite=True)
-
-        logging.info("Finished creating normalized slope image and super slope image")
-
-        # Using thresholds to identify bad pixels
-        # Empty mask of zeros to be filled in with bitvals
-        mask = np.zeros((4096, 4096), dtype=np.uint32)
+        logging.info("Creating the normalized super rate image")
+        self.create_normalized_super_rate_im()
+        
+        logging.info("Creating the CDS noise and dark rate images")
+        self.create_cds_noise_darkrate_im(do_sigma_clip=do_sigma_clip,
+                                          sig_clip_cds_low=sig_clip_cds_low,
+                                          sig_clip_cds_high=sig_clip_cds_high)
 
         logging.info("Beginning bad pixel identification")
 
-        # Identifying DEAD pixels
-        median_slope = np.median(super_slope_image)
-        std_slope = np.std(super_slope_image)
+        logging.info(f"Setting DEAD pixels using a threshold of {dead_sigma_thr} sigma")
+        self.set_dead_pixels(dead_sigma_thr=dead_sigma_thr)
 
-        # SAPP TODO - NOTE These constants are configurable in pipelines_config.yml and currently imported in fgs_mask_pipeline.py  Should this code be in prep?
-        dead_threshold = median_slope - (DEAD_SIGMA_THR * std_slope)
-        dead_mask = super_slope_image < dead_threshold
-        mask[dead_mask] += Flags.DEAD
+        logging.info(f"Setting HOT and SUPERHOT pixels using a threshold of {hot_thr} DN and {superhot_thr} DN")
+        self.set_hot_superhot_pixels(hot_thr=hot_thr, 
+                                     superhot_thr=superhot_thr)
+        
+        logging.info(f"Setting HIGH_CDS_NOISE pixels using threshold of {high_cds_thr} DN")
+        self.set_high_cds_noise_pixels(high_cds_thr=high_cds_thr)
 
-        # Identifying HOT and SUPERHOT pixels
-        hot_mask = rn_cube.rate_image > HOT_THR
-        mask[hot_mask] += Flags.HOT_PIXEL
+        logging.info(f"Setting LOW_QE pixels using a threshold of {low_qe_thr}")
+        self.set_low_qe_pixels(low_qe_thr=low_qe_thr)
+        
+        logging.info(f"Setting BAD_FLAT_FIELD pixels using a threshold of {bad_flat_thr}")
+        self.set_bad_flat_field_pixels(bad_flat_thr=bad_flat_thr)
 
-        superhot_mask = rn_cube.rate_image > SUPERHOT_THR
-        mask[superhot_mask] += Flags.HOT_PIXEL
+        logging.info("Finished running FGS mask workflow!")
 
-        # Identifying HIGH_CDS_NOISE
-        cds_mask = rn_cube.cds_noise > HIGH_CDS_THR
-        mask[cds_mask] += Flags.HIGH_CDS_NOISE
+    def create_normalized_super_rate_im(self):
 
-        # Identifying LOW_QE pixels
-        qe_mask = normalized_image < LOW_QE_THR
-        mask[qe_mask] += Flags.LOW_QE_OPTICAL
+        normalized_super_rate = self.super_rate_image / np.nanmean(self.super_rate_image)
+        self.normalized_super_rate = normalized_super_rate
 
-        # Identifying BAD_FLAT_FIELD pixels
-        flat_mask = normalized_image < BAD_FLAT_THR
-        mask[flat_mask] += Flags.FLAT_FIELD
+        return
 
-        logging.info("Writing mask to output directory")
+    def set_dead_pixels(self, dead_sigma_thr=5.0):
 
-        # Writing mask to disk
-        mask_path = os.path.join(basedir, f"mask_{det}.fits")
-        fits.writeto(mask_path, data=mask, overwrite=True)
+        median_slope = np.median(self.super_rate_image)
+        std_slope = np.std(self.super_rate_image)
 
-        # PSS expects the mask as FITS boolean file in DETECTOR coordinates (not SCIENCE)
-        logging.info("Transforming mask to boolean mask in DETECTOR coordinates")
-        binary_mask = (mask != 0).astype("uint8")
-        binary_mask_det = change_coord_to_det(binary_mask, det)
+        dead_threshold = median_slope - (dead_sigma_thr * std_slope)
+        dead_mask = self.super_rate_image < dead_threshold
 
-        logging.info("Writing transformed boolean mask to FITS")
-        binary_mask_path = os.path.join(basedir, f"binary_mask_{det}.fits")
-        fits.writeto(binary_mask_path, data=binary_mask_det, overwrite=True)
+        self.mask_image[dead_mask] += FGSFlags.DEAD
 
-        logging.info("Finished running FGS mask workflow on ", det)
+        return
+    
+    def set_hot_superhot_pixels(self, hot_thr=2.5, superhot_thr=20.0):
 
-    def change_coord_to_det(self, arr, det):
-        """
-        Change the detector coordinates from DETECTOR to SCIENCE (run again to undo). Dependent on detector.
-        Code from Sarah Betti
-        """
-        # Detector coordinate positions; GSFC uses detector, SOC uses science
-        detector_pos = {
-            "WFI01": "upper left",
-            "WFI02": "upper left",
-            "WFI03": "lower right",
-            "WFI04": "upper left",
-            "WFI05": "upper left",
-            "WFI06": "lower right",
-            "WFI07": "upper left",
-            "WFI08": "upper left",
-            "WFI09": "lower right",
-            "WFI10": "upper left",
-            "WFI11": "upper left",
-            "WFI12": "lower right",
-            "WFI13": "upper left",
-            "WFI14": "upper left",
-            "WFI15": "lower right",
-            "WFI16": "upper left",
-            "WFI17": "upper left",
-            "WFI18": "lower right",
-        }
+        hot_mask = self.darkrate_image > hot_thr
+        self.mask_image[hot_mask] += FGSFlags.HOT_PIXEL
 
-        position = detector_pos[det]
+        superhot_mask = self.darkrate_image > superhot_thr
+        self.mask_image[superhot_mask] += FGSFlags.HOT_PIXEL
 
-        if position == "lower right":
-            return arr[:, ::-1]
+        return
 
-        else:
-            return arr[::-1]
+    def set_high_cds_noise_pixels(self, high_cds_thr=11.0):
 
-    def _get_slope(self, file):
-        """
-        Extracts the slope (linear term) of the data using polynomial fitting.
-        """
-        with asdf.open(file, memmap=True) as rf:
-            data = rf["roman"]["data"]
-            data = data.value if hasattr(data, "value") else data
-            datacube = Flat.FlatDataCube(
-                data.shape[0], degree=1
-            )  # SAPP TODO, we want to use this but it takes different parameters
+        cds_mask = self.cds_noise > high_cds_thr
+        self.mask_image[cds_mask] += FGSFlags.HIGH_CDS_NOISE
 
-            # Extract the linear coefficient
-            slope = datacube.fit(data)[1]
+        return
 
-        return slope
+    def set_low_qe_pixels(self, low_qe_thr=0.3):
 
-    def create_super_slope_image(self, filelist, multip):
-        """
-        Fit a slope to each file in filelist, then average
-        all slopes together to create a super slope image.
-        """
-        # Speed up slope calculation with Pool's map function
-        if multip:
-            with Pool(processes=NPROCESSES) as pool:
-                slopes = pool.map(_get_slope, filelist)
+        qe_mask = self.normalized_super_rate < low_qe_thr
+        self.mask_image[qe_mask] += FGSFlags.LOW_QE_OPTICAL
 
-        else:
-            slopes = [_get_slope(file) for file in filelist]
+        return
 
-        super_slope_image = np.nanmean(slopes, axis=0)
+    def set_bad_flat_field_pixels(self, bad_flat_thr=0.0):
 
-        return super_slope_image
+        flat_mask = self.normalized_super_rate < bad_flat_thr
+        self.mask_image[flat_mask] += FGSFlags.FLAT_FIELD
 
-    def create_normalized_image(self, filelist, multip):
-        """Create super slope image from filelist, then normalize."""
-        super_slope = create_super_slope_image(filelist, multip)
+        return
+    
+    # TODO: should this just be in make_fgs_mask_image?
+    def create_cds_noise_darkrate_im(self, do_sigma_clip=True, sig_clip_cds_low=5.0, sig_clip_cds_high=5.0):
+        logging.info("Creating ReadNoise data cube")
+        self.readnoise_cube = ReadNoise.ReadNoiseDataCube(self.superdark,
+                                                          self.meta_data.type)
+        # Prep CDS noise computations
+        self.readnoise_cube.fit_cube(degree=1)
+        self.readnoise_cube.make_ramp_model(order=1)
 
-        return super_slope / np.nanmean(super_slope)
+        # Compute and write CDS noise image
+        # TODO the comp_cds_noise function is for the ReadNoise class,
+        # so I would need to create that obj to use the function. IMO it's
+        # more lines to do that than to just redefine the function
+        self.compute_cds_noise_from_datacube(do_sigma_clip=do_sigma_clip,
+                                             sig_clip_cds_low=sig_clip_cds_low, 
+                                             sig_clip_cds_high=sig_clip_cds_high)
+        
+        logging.info("Creating darkrate image")
+        self.darkrate_image = self.readnoise_cube.rate_image
 
-    def compute_cds_noise_from_datacube(self, rn_cube, cds_noise_path):
-        """Compute CDS noise image. COPIED FROM READNOISE MODULE"""  # TODO - I dont see where this was copied from?
-
+    def compute_cds_noise_from_datacube(self, do_sigma_clip=True, sig_clip_cds_low=5.0, sig_clip_cds_high=5.0):
+        """Compute CDS noise image. Copied from ReadNoise.comp_cds""" 
+        logging.info("Computing CDS noise image")
         read_diff_cube = np.zeros(
-            (
-                math.ceil(rn_cube.num_reads / 2),
-                rn_cube.num_i_pixels,
-                rn_cube.num_j_pixels,
-            ),
-            dtype=np.float32,
-        )
+            (math.ceil(self.readnoise_cube.num_reads / 2),
+             self.readnoise_cube.num_i_pixels,
+             self.readnoise_cube.num_j_pixels,),
+            dtype=np.float32,)
 
-        for i_read in range(0, rn_cube.num_reads - 1, 2):
+        for i_read in range(0, self.readnoise_cube.num_reads - 1, 2):
             # Avoid index error if num_reads is odd and disregard the last read because it does not form a pair.
-            rd1 = rn_cube.ramp_model[i_read, :, :] - rn_cube.data[i_read, :, :]
-            rd2 = rn_cube.ramp_model[i_read + 1, :, :] - rn_cube.data[i_read + 1, :, :]
+            rd1 = self.readnoise_cube.ramp_model[i_read, :, :] - self.readnoise_cube.data[i_read, :, :]
+            rd2 = self.readnoise_cube.ramp_model[i_read + 1, :, :] - self.readnoise_cube.data[i_read + 1, :, :]
 
             read_diff_cube[math.floor((i_read + 1) / 2), :, :] = rd2 - rd1
 
-            rn_cube.cds_noise = np.std(read_diff_cube, axis=0)
+        if do_sigma_clip:
+            logging.info("Performing sigma-clipping on read differences before calculating CDS noise")
+            clipped_diff_cube = sigma_clip(
+                read_diff_cube,
+                sigma_lower=sig_clip_cds_low,
+                sigma_upper=sig_clip_cds_high,
+                cenfunc=np.mean,
+                axis=0,
+                masked=False,
+                copy=False)
 
-        fits.writeto(cds_noise_path, data=rn_cube.cds_noise, overwrite=True)
+            cds_noise = np.std(clipped_diff_cube, axis=0)
+
+        else:
+            cds_noise = np.std(read_diff_cube, axis=0)
+
+        self.cds_noise = cds_noise
 
     def calculate_error(self):
         """
-        Abstract method not applicable to Gain.
+        Abstract method not applicable to FGSMask.
         """
 
         pass
 
     def update_data_quality_array(self):
         """
-        Abstract method not utilized by Gain().
+        Abstract method not utilized by FGSMask().
+
+        NOTE - Similar to Mask(), this would be redundant to make_mask_image(). 
+        The attribute mask is reserved specifically setting the data quality arrays
+        of other reference file types.
         """
 
         pass
@@ -382,5 +263,14 @@ class FGSMask(ReferenceType):
     def populate_datamodel_tree(self):
         """
         Create data model from DMS and populate tree.
+
+        NOTE: This is the "intermediate DQ product", based off the Mask datamodel.
+        The actual FGS mask that is delievered to PSS is created in fgs_mask_pipeline.py.
         """
-        pass
+
+        datamodel_tree = {
+            'meta': self.meta_data.export_asdf_meta(),
+            'dq': self.mask_image
+        }
+
+        return asdf.AsdfFile(datamodel_tree)
