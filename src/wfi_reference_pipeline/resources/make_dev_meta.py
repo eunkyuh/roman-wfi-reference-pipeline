@@ -49,7 +49,9 @@ from wfi_reference_pipeline.resources.wfi_meta_gain import WFIMetaGain
 from wfi_reference_pipeline.resources.wfi_meta_integral_non_linearity import (
     WFIMetaIntegralNonLinearity,
 )
-from wfi_reference_pipeline.resources.wfi_meta_interpixelcapacitance import WFIMetaIPC
+from wfi_reference_pipeline.resources.wfi_meta_inter_pixel_capacitance import (
+    WFIMetaInterPixelCapacitance,
+)
 from wfi_reference_pipeline.resources.wfi_meta_inverselinearity import (
     WFIMetaInverseLinearity,
 )
@@ -125,11 +127,11 @@ class MakeDevMeta:
             *meta_data, *meta_integral_non_linearity
         )
 
-    def _create_dev_meta_ipc(self, meta_data):
+    def _create_dev_meta_inter_pixel_capacitance(self, meta_data):
         p_optical_element = "F158"
 
         ipc_meta_data = [p_optical_element]
-        self.meta_ipc = WFIMetaIPC(*meta_data, *ipc_meta_data)
+        self.meta_ipc = WFIMetaInterPixelCapacitance(*meta_data, *ipc_meta_data)
 
     def _create_dev_meta_linearity(self, meta_data):
         input_units = u.DN
