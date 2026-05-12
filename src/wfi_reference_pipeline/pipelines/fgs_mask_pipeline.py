@@ -1,25 +1,27 @@
 import logging
-from pathlib import Path
 import os
+import shutil
+from datetime import datetime
+from pathlib import Path
+
 import asdf
 import numpy as np
-from datetime import datetime
-import shutil
 import roman_datamodels as rdm
-
+from astropy.io import fits
 from romancal.dq_init import DQInitStep
 from romancal.refpix import RefPixStep
 from romancal.saturation import SaturationStep
 
-from astropy.io import fits
-
 from wfi_reference_pipeline.config.config_access import get_pipelines_config
-from wfi_reference_pipeline.constants import REF_TYPE_FGS_MASK
+from wfi_reference_pipeline.constants import (
+    DETECTOR_PIXEL_X_COUNT,
+    DETECTOR_PIXEL_Y_COUNT,
+    REF_TYPE_FGS_MASK,
+)
+from wfi_reference_pipeline.pipelines.dark_pipeline import DarkPipeline
 from wfi_reference_pipeline.pipelines.pipeline import Pipeline
 from wfi_reference_pipeline.reference_types.fgs_mask.fgs_mask import FGSMask
 from wfi_reference_pipeline.resources.make_dev_meta import MakeDevMeta
-from wfi_reference_pipeline.pipelines.dark_pipeline import DarkPipeline
-from wfi_reference_pipeline.constants import DETECTOR_PIXEL_X_COUNT, DETECTOR_PIXEL_Y_COUNT
 
 # from wfi_reference_pipeline.utilities.logging_functions import log_info
 
@@ -119,7 +121,10 @@ class FGSMaskPipeline(Pipeline):
         logging.info("All files prepped, ready to run FGSMask")
 
     def prep_superdark(self):
-        """Create a superdark from the prepped self.dark_filelist files."""
+        """
+        Create a superdark from the prepped self.dark_filelist files.
+        This function uses the DarkPipeline superdark code. 
+        """
         # Need the number of reads to run the superdark code
         nreads = self._get_nreads()
 
@@ -142,7 +147,10 @@ class FGSMaskPipeline(Pipeline):
         return
     
     def prep_super_rate(self):
-        """The prepped flats will already be rate images. Create a super rate image."""
+        """
+        This function creates a super rate image by averaging the inputted flat rate files.
+        The super rate image is then set as the attribtue `self.super_rate_image`
+        """
         rate_images = np.zeros((len(self.flat_filelist), DETECTOR_PIXEL_Y_COUNT, DETECTOR_PIXEL_X_COUNT))
 
         for i, file in enumerate(self.flat_filelist):
@@ -158,7 +166,10 @@ class FGSMaskPipeline(Pipeline):
         
 
     def run_pipeline(self, file_list=None):
-
+        """
+        With the superdark and super rate image, run the FGS workflow on the
+        files to create a DQ bitmask using the FGSFlags in fgs_mask.py.
+        """
         logging.info("FGS_MASK PIPE")
 
         if file_list is not None:
@@ -166,9 +177,7 @@ class FGSMaskPipeline(Pipeline):
         else:
             file_list = self.prepped_files
 
-        tmp = MakeDevMeta(
-            ref_type=self.ref_type
-        )  # TODO replace with MakeMeta which gets actual information from files
+        tmp = MakeDevMeta(ref_type=self.ref_type)
 
         out_file_path = self.file_handler.format_pipeline_output_file_path(
             tmp.meta_fgs_mask.mode,
@@ -183,13 +192,25 @@ class FGSMaskPipeline(Pipeline):
             clobber=True,
         )
 
+        # Running the actual FGS mask algorithms
         self.rfp_fgs_mask.make_fgs_mask_image()
 
         self.rfp_fgs_mask.generate_outfile()
+
         logging.info("Finished RFP to make FGS_MASK")
 
     def pre_deliver(self, file_change_note=None):
-        """This is where the coord transformation + boolean impl goes"""
+        """
+        Converting the new bitmask to DETECTOR coordinates and
+        creating a boolean mask where all non-zero values = 1.
+        NOTE: This is the format that will be delivered to PSS.
+
+        Parameters
+        ----------
+        file_change_note : str, optional
+            String that indicates if any major changes are associated with the creation
+            of this mask. Default is None.
+        """
         self.convert_mask_to_pss_format()
         self.save_pss_mask(file_change_note=file_change_note)
 
@@ -197,13 +218,20 @@ class FGSMaskPipeline(Pipeline):
         pass
     
     def convert_mask_to_pss_format(self):
-
+        """
+        Put the DQ mask into detector coordinates, then convert to boolean.
+        The converted PSS mask is set as `self.mask_pss`.
+        """
         mask_det_coords = self._change_coord_to_det(self.rfp_fgs_mask.mask_image)
         self.mask_pss = self._convert_mask_to_boolean(mask_det_coords)
 
     # TODO: Is it the standard for the default value to be explicitly set in 
     # subsequent functions? or just the first time it's used? (file_change_note)
     def save_pss_mask(self, file_change_note):
+        """
+        Using the PSS mask, create the FITS file with the correct header.
+        The outpath of the new mask file is set as `self.pss_mask_outpath`.
+        """
 
         mask_header = self._make_fits_header(file_change_note=file_change_note)
         hdu = fits.PrimaryHDU(data=self.mask_pss,
@@ -216,7 +244,9 @@ class FGSMaskPipeline(Pipeline):
                     overwrite=True)
 
     def _make_fits_header(self, file_change_note):
-
+        """
+        Create the FITS header for the PSS mask.
+        """
         hdr = fits.Header()
 
         hdr['DETECTOR'] = (self.detector, 'WFI detector number')
@@ -229,6 +259,7 @@ class FGSMaskPipeline(Pipeline):
         
 
     def _convert_mask_to_boolean(self, mask):
+        """Return a mask where any non-zero value = 1"""
         return (mask != 0).astype("uint8")
 
     def _change_coord_to_det(self, arr):
@@ -278,7 +309,7 @@ class FGSMaskPipeline(Pipeline):
     
     def _run_romancal(self, file):
         """
-        Run romancal on a single file.
+        Run romancal on a single file. Add the output filepath to `self.prepped_files`.
         """
         with rdm.open(file) as f:
 
@@ -296,7 +327,7 @@ class FGSMaskPipeline(Pipeline):
     
     def _sort_filelist(self):
         """
-        Sort the prepped files into flats and darks.
+        Sort the prepped files into flats and darks based on filename.
         """
         logging.info("Sorting the files into flats vs darks in self.file_list")
 
