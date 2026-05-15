@@ -62,6 +62,7 @@ class FlatSimulation:
         program="00904",
         config_file='simulate_flats_config.yml',
         flat_rate=1000,
+        filters="ALL",   # <-- NEW
         auto_run=False,   
     ):
         self.output_dir = Path(output_dir)
@@ -72,6 +73,7 @@ class FlatSimulation:
         self.program = program
         self.flat_rate = flat_rate
         self.auto_run = auto_run
+        self.filters = self._parse_filters(filters)
 
         self.config = self._load_config(config_file)
 
@@ -79,6 +81,35 @@ class FlatSimulation:
 
         if self.auto_run:
             self.run()
+
+    # ---------------------------------------------------------
+    # Filter parsing
+    # ---------------------------------------------------------
+    def _parse_filters(self, filters):
+
+        if filters == "ALL":
+            return FLAT_FILTERS
+
+        if isinstance(filters, str):
+            filters = [filters]
+
+        parsed = []
+
+        valid_filters = set(FLAT_FILTERS)
+
+        for filt in filters:
+
+            filt = filt.upper()
+
+            if filt not in valid_filters:
+                raise ValueError(
+                    f"Invalid filter {filt}. "
+                    f"Valid filters are: {sorted(valid_filters)}"
+                )
+
+            parsed.append(filt)
+
+        return parsed
 
     # ---------------------------------------------------------
     # SCA parsing aka WFI01 to WFI18
@@ -189,7 +220,7 @@ class FlatSimulation:
 
         current_time = self.start_time.copy()
 
-        for filt in FLAT_FILTERS:
+        for filt in self.filters:
             print("\n==============================")
             print(f"Running filter {filt}")
             print("==============================")
