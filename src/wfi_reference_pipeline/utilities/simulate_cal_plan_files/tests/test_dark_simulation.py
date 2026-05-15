@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-import yaml
 
 from wfi_reference_pipeline.utilities.simulate_cal_plan_files.simulate_dark_cal_plan import (
     BaseDarkSimulation,

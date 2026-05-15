@@ -1,11 +1,10 @@
+
 import pytest
-from pathlib import Path
 
 from wfi_reference_pipeline.utilities.simulate_cal_plan_files.simulate_flat_cal_plan import (
-    FlatSimulation,
     FLAT_FILTERS,
+    FlatSimulation,
 )
-
 
 # ---------------------------------------------------------
 # Fixtures
