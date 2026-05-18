@@ -7,9 +7,9 @@ from pathlib import Path
 import crds
 import numpy as np
 import roman_datamodels as rdm
-from roman_datamodels.datamodels import EtcRefModel
 import yaml
 from crds.client import api
+from roman_datamodels.datamodels import EtcRefModel
 
 from wfi_reference_pipeline.resources.wfi_meta_exposure_time_calculator import (
     WFIMetaETC,
