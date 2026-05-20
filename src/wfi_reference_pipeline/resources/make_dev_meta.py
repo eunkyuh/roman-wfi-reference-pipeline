@@ -20,10 +20,10 @@ from wfi_reference_pipeline.resources.wfi_meta_dark_decay_signal import (
 from wfi_reference_pipeline.resources.wfi_meta_detector_status import (
     WFIMetaDetectorStatus,
 )
+from wfi_reference_pipeline.resources.wfi_meta_empirical_psf import WFIMetaEPSF
 from wfi_reference_pipeline.resources.wfi_meta_exposure_time_calculator import (
     WFIMetaETC,
 )
-from wfi_reference_pipeline.resources.wfi_meta_empirical_psf import (WFIMetaEPSF)
 from wfi_reference_pipeline.resources.wfi_meta_flat import WFIMetaFlat
 from wfi_reference_pipeline.resources.wfi_meta_gain import WFIMetaGain
 from wfi_reference_pipeline.resources.wfi_meta_integral_non_linearity import (

@@ -1,9 +1,9 @@
-import asdf
-import numpy as np
 import roman_datamodels.stnode as rds
 
-from ..reference_type import ReferenceType
 from wfi_reference_pipeline.resources.wfi_meta_empirical_psf import WFIMetaEPSF
+
+from ..reference_type import ReferenceType
+
 
 class EmpiricalPSF(ReferenceType):
     """
