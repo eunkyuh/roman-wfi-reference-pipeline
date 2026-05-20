@@ -23,7 +23,7 @@ dependencies = [
     "pysiaf>=0.24.0,<0.25.0",
     "PyYAML>=6.0.1,<6.1.0",
     "requests>=2.32.0,<2.33.0",
-    "romancal>=0.22.0",
+    "romancal>=0.22.0,<1.0.0",
     "scipy>=1.15.0,<1.17.0",
     "soc_roman_tools>=0.1.0,<0.2.0",
     "stpsf>=2.2.0",
@@ -102,4 +102,12 @@ omit = [
     "**/__init__.py",
     "**/tests/*",
     "wfi_reference_pipeline/version.py",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "src",
+]
+addopts = [
+    "--import-mode=importlib",
 ]
