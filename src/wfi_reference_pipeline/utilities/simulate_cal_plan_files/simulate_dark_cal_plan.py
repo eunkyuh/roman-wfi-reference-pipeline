@@ -39,18 +39,16 @@ class BaseDarkSimulation:
         self,
         output_dir,
         program,
-        truncate,
         start_time,
         num_exposures,
         scas="ALL_WFI",
         optical_element="F213",
-        ma_table_number=9003,
+        ma_table_number=None,  # DIAGNOSTIC = 9003, IM_135_8 = 1010
         level=1,
         config_file=None,
     ):
         self.output_dir = Path(output_dir)
         self.program = program
-        self.truncate = truncate
         self.start_time = Time(start_time)
         self.num_exposures = num_exposures
         self.optical_element = optical_element
@@ -65,6 +63,22 @@ class BaseDarkSimulation:
         self.config = self._load_config(config_file)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_ma_table_config(self):
+        """
+        Map MA table number → (truncate, n_reads)
+        """
+
+        ma_map = {
+            1010: {"truncate": None, "n_reads": 8},  # IM_135_8 (Weekly)
+            9003: {"truncate": 55, "n_reads": 15},  # DIAGNOSTIC (Long)
+        }
+
+        if self.ma_table_number not in ma_map:
+            raise ValueError(f"Unsupported MA table: {self.ma_table_number}")
+
+        return ma_map[self.ma_table_number]
+
 
     # ---------------------------------------------------------
     # Get the WFI and SCAs to simulate
@@ -109,19 +123,13 @@ class BaseDarkSimulation:
     # Configuration Handling
     # ---------------------------------------------------------
     def _load_config(self, config_file):
-        """
-        Loading a config file from the pwd directory which contains properties to override
-        dark defaults in the RFP simulate dark function.
-        """
         if config_file is None:
             return None
 
-        # If config_file is just a filename, resolve relative to this module
-        config_path = Path(config_file)
+        config_path = Path(__file__).resolve().parent / config_file
 
-        if not config_path.is_absolute():
-            module_dir = Path(__file__).resolve().parent
-            config_path = module_dir / config_file
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config not found: {config_path}")
 
         with open(config_path, "r") as f:
             return yaml.safe_load(f)
@@ -167,16 +175,22 @@ class BaseDarkSimulation:
         """
         Need to construct the command line for romanisim-make-image
         """
-        command = ["romanisim-make-image",
-                   "--date", current_time.isot,
-                   "--nobj", "0",
-                   "--usecrds", 
-                   "--sca", str(sca),
-                   "--level", str(self.level),
-                   "--ma_table_number", str(self.ma_table_number),
-                   "--truncate", str(self.truncate),
-                   str(filename),
-                   ]
+        command = [
+            "romanisim-make-image",
+            "--date", current_time.isot,
+            "--nobj", "0",
+            "--usecrds",
+            "--sca", str(sca),
+            "--level", str(self.level),
+            "--ma_table_number", str(self.ma_table_number),
+        ]
+
+        cfg = self._get_ma_table_config()
+
+        if cfg["truncate"] is not None:
+            command += ["--truncate", str(cfg["truncate"])]
+
+        command.append(str(filename))
 
         print(f"Running: {' '.join(command)}")
         result = subprocess.run(command, capture_output=True, text=True)
@@ -197,15 +211,18 @@ class BaseDarkSimulation:
         # Get the override parameters to simulate a dark cube from the RFP function
         dark_params = self._get_sca_dark_params(sca)
 
-        dark_cube, _ = simulate_dark_reads(n_reads=self.truncate,
-                                           **dark_params,
-                                           )
+        cfg = self._get_ma_table_config()
+
+        dark_cube, _ = simulate_dark_reads(
+            n_reads=cfg["n_reads"],
+            **dark_params,
+        )
 
         with asdf.open(filename, mode="rw") as af:
             #TODO update romanisim to do dark exposures or just realize noise up the ramp
             af.tree["roman"]["meta"]["instrument"]["optical_element"] = "DARK"
             #TODO make issue or fix MA Table name from reference file in romanisim
-            af.tree["roman"]["meta"]["exposure"]["ma_table_name"] = "IM_DIAGNOSTIC"
+            #af.tree["roman"]["meta"]["exposure"]["ma_table_name"] = "IM_DIAGNOSTIC"
 
             # Not using the noise from romanisim yet - need to text RFP simulated dark data first
             af.tree["roman"]["data"] = dark_cube.astype(np.uint16)
@@ -234,29 +251,38 @@ class BaseDarkSimulation:
                 except Exception as e:
                     print(f"✘ Exposure {exp} failed: {e}")
 
-                # Advance time
+                cfg = self._get_ma_table_config()
+
+                n_reads = cfg["truncate"] if cfg["truncate"] is not None else cfg["n_reads"]
+
                 current_time += (
-                    self.truncate * WFI_FRAME_TIME[WFI_MODE_WIM] + time_overhead
+                    n_reads * WFI_FRAME_TIME[WFI_MODE_WIM] + time_overhead
                 ) * u.s
 
 
 # =============================================================
-# Short Dark Class
+# Weekly Simulated Dark Class
 # =============================================================
-class ShortDarkSimulation(BaseDarkSimulation):
+class WeeklyDarkSimulation(BaseDarkSimulation):
     """
     For simulating the inflight calibration plan, we are going to change the actual requirement 
     to something more manageable in memory and filesize. 
 
-    Inflight plan calls for: (26) short dark exposures with 46 single read resultants.
+    Inflight plan calls for: (50) dark exposures with MA Table IM_135_8.
 
-    Implemented here: (26) short dark exposures with 16 single read resultants. 
+    Only do (25) dark exposures during GBTDS seasons. Visit ID is 2 for this.
     """
-    def __init__(self, output_dir, config_file=None, scas="ALL_WFI", num_exposures=26, auto_run=False):
+    def __init__(self, 
+                 output_dir, 
+                 config_file=None, 
+                 scas="ALL_WFI", 
+                 num_exposures=50, 
+                 auto_run=False):
+        
         super().__init__(
             output_dir=output_dir,
-            program="00444",
-            truncate=16,
+            program="00901",
+            ma_table_number=1010,
             start_time="2026-10-01T00:00:00",
             num_exposures=num_exposures,
             scas=scas,
@@ -274,17 +300,22 @@ class LongDarkSimulation(BaseDarkSimulation):
     For simulating the inflight calibration plan, we are going to change the actual requirement 
     to something more manageable in memory and filesize. 
 
-    Inflight plan calls for: (24) long dark exposures with 98 single read resultants.
+    Inflight plan calls for: (10) long dark exposures with 55 single read resultants.
 
-    Implemented here: (24) long dark exposures with 28 single read resultants. 
+    Implemented here: (10) long dark exposures with 15 single read resultants. 
     """
 
-    def __init__(self, output_dir, config_file=None, scas="ALL_WFI", num_exposures=24, auto_run=False):
+    def __init__(self, 
+                 output_dir, 
+                 config_file=None, 
+                 scas="ALL_WFI", 
+                 num_exposures=10, 
+                 auto_run=False):
         super().__init__(
             output_dir=output_dir,
-            program="00445",
-            truncate=28,
-            start_time="2026-10-01T00:00:00",
+            program="00902",
+            truncate=15,
+            start_time="2026-10-02T00:00:00",
             num_exposures=num_exposures,
             scas=scas,
             config_file=config_file,
