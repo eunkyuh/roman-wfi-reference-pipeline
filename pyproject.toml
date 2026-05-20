@@ -103,3 +103,11 @@ omit = [
     "**/tests/*",
     "wfi_reference_pipeline/version.py",
 ]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "src",
+]
+addopts = [
+    "--import-mode=importlib",
+]

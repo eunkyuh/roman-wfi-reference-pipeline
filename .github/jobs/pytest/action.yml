@@ -6,7 +6,7 @@ name: 'Execute pytest'
 description: 'Run tests with pytest and provide GitHub Job Summaries report'
 inputs:
   coverage:
-    description: Run coverage with pytest? 
+    description: Run coverage with pytest?
     default: true
     required: false
 
@@ -19,12 +19,12 @@ runs:
       shell: bash
       if: ${{ fromJSON(inputs.coverage) == true }}
       run: echo "PYTEST_ACTION_COVERAGE_ARGS=--cov --cov-report=xml" >> $GITHUB_ENV
-    
+
     - name: "Dont use coverage"
       shell: bash
       if: ${{ fromJSON(inputs.coverage) == false }}
       run: echo "PYTEST_ACTION_COVERAGE_ARGS= " >> $GITHUB_ENV
-        
+
 
     # pytest with the configured options and coverage
     - name: "run pytest"
@@ -32,7 +32,7 @@ runs:
       shell: bash
       run: |
         echo "# Pytest Results :rocket: " >> $GITHUB_STEP_SUMMARY
-        pytest --cache-clear ${{ env.PYTEST_ACTION_COVERAGE_ARGS }} >> $GITHUB_STEP_SUMMARY 
+        pytest --cache-clear ${{ env.PYTEST_ACTION_COVERAGE_ARGS }} | tee -a $GITHUB_STEP_SUMMARY
 
     # return the report summary even if pytest fails and coverage is requested
     - name: "Get Coverage Report"
