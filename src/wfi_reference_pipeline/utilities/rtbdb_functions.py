@@ -1,10 +1,27 @@
 import logging
+from datetime import datetime
 
 try:
     from rtb_db.utilities import login, rfp_tools
 except ImportError:
     logging.warning("Attempting to import rtb_db when not available, install package using rtb_db optional dependency")
 
+
+
+def get_datetime_db_format():
+    """
+    RTBDB requires no microseconds to avoid comparison errors
+
+    Parameters
+    ----------
+    none
+
+    Returns
+    -------
+    datetime: current datetime with microseconds removed
+    """
+    now = datetime.now().replace(microsecond=0)
+    return now
 
 def make_even_spacing_read_pattern(num_resultants=None, num_rds_per_res=None):
     """
