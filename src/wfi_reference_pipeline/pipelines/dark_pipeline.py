@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 from pathlib import Path
 
 import roman_datamodels as rdm
@@ -26,6 +25,7 @@ from wfi_reference_pipeline.reference_types.dark.superdark_file_batches import (
 )
 from wfi_reference_pipeline.resources.make_dev_meta import MakeDevMeta
 from wfi_reference_pipeline.utilities.filename_parser import FilenameParser
+from wfi_reference_pipeline.utilities.rtbdb_functions import get_datetime_db_format
 
 # from wfi_reference_pipeline.utilities.logging_functions import log_info
 
@@ -79,10 +79,8 @@ class DarkPipeline(Pipeline):
         # Get files from input directory
         # files = [str(file) for file in self.ingest_path.glob("r0044401001001001001_01101_000*_WFI01_uncal.asdf")]
         files = list(
-            # self.ingest_path.glob(f"r0044401001001001001_01101_0001_{self.detector}_uncal.asdf")
-            # self.ingest_path.glob(f"r00444*_{self.detector}_uncal.asdf")
             self.ingest_path.glob(
-                f"r0044501001001001004*{(self.detector).lower()}*_uncal.asdf"
+                f"r0090101001001001001_000*{(self.detector).lower()}*_uncal.asdf"
             )
         )
 
@@ -90,8 +88,8 @@ class DarkPipeline(Pipeline):
         logging.info(f"Ingesting {len(files)} Files: {files}")
         if self.db_handler:
             # TODO - this is no longer intended to be run in segments so pipeline_cmd is no longer needed
-            self.db_handler.db_entry.pipeline_cmd = "restart_pipeline"
-            self.db_handler.db_entry.input_file_list = files
+            self.db_handler.db_entry.rfp_log_pro.pipeline_cmd = "restart_pipeline"
+            self.db_handler.db_entry.rfp_log_pro.input_file_list = files
             self.db_handler.update_db_entry()
 
     # @log_info
@@ -100,7 +98,7 @@ class DarkPipeline(Pipeline):
         Prepare calibration data files by running data through select romancal steps
         """
         logging.info("DARK PREP")
-        start_time = self._get_datetime_str_formatted()
+        start_time = get_datetime_db_format()
 
         # Clean up previous runs
         self.prepped_files.clear()
@@ -141,8 +139,8 @@ class DarkPipeline(Pipeline):
         self.qc.check_prep_pipeline()  # TODO - speak with rick about what to do on QC Failures
 
         if self.db_handler:
-            self.db_handler.db_entry.prep_start = start_time
-            self.db_handler.db_entry.prep_end = self._get_datetime_str_formatted()
+            self.db_handler.db_entry.rfp_log_pro.prep_start = start_time
+            self.db_handler.db_entry.rfp_log_pro.prep_end = get_datetime_db_format()
             self.db_handler.update_db_entry()
 
         logging.info("Finished PREPPING files to make DARK reference file from RFP")
@@ -293,7 +291,7 @@ class DarkPipeline(Pipeline):
     # @log_info
     def run_pipeline(self, file_list=None):
         logging.info("DARK PIPE")
-        start_time = self._get_datetime_str_formatted()
+        start_time = get_datetime_db_format()
 
         if file_list is not None:
             file_list = list(map(Path, file_list))
@@ -313,20 +311,17 @@ class DarkPipeline(Pipeline):
             outfile=out_file_path,
             clobber=True,
         )
-        read_pattern = [[1], [2, 3], [5, 6, 7], [10]]
-        rfp_dark.make_ma_table_resampled_data(read_pattern=read_pattern)
         rfp_dark.make_rate_image_from_data_cube()
         rfp_dark.update_data_quality_array(
             hot_pixel_rate=self.qc.pipeline.values.hot_pixel_rate,
             warm_pixel_rate=self.qc.pipeline.values.warm_pixel_rate,
-            dead_pixel_rate=self.qc.pipeline.values.dead_pixel_rate,
         )
         rfp_dark.generate_outfile()
         self.qc.check_pipeline(rfp_dark)  # TODO - discuss placement of this
 
         if self.db_handler:
-            self.db_handler.db_entry.pipe_start = start_time
-            self.db_handler.db_entry.pipe_end = self._get_datetime_str_formatted()
+            self.db_handler.db_entry.rfp_log_pro.pipe_start = start_time
+            self.db_handler.db_entry.rfp_log_pro.pipe_end = get_datetime_db_format()
             self.db_handler.update_db_entry()
 
 
@@ -342,13 +337,13 @@ class DarkPipeline(Pipeline):
     def deliver(self):
         if self.db_handler:
             # TODO fill in these crds times
-            # self.db_handler.db_entry.qc_status # TODO implement this in stages
-            # self.db_handler.db_entry.crds_filename
-            # self.db_handler.db_entry.crds_context
-            # self.db_handler.db_entry.crds_end_time
-            # self.db_handler.db_entry.crds_start_time
-            # self.db_handler.db_entry.crds_delivered
-            self.db_handler.db_entry.end_time = self._get_datetime_str_formatted()
+            # self.db_handler.db_entry.rfp_log_pro.qc_status # TODO implement this in stages
+            # self.db_handler.db_entry.rfp_log_pro.crds_filename
+            # self.db_handler.db_entry.rfp_log_pro.crds_context
+            # self.db_handler.db_entry.rfp_log_pro.crds_end_time
+            # self.db_handler.db_entry.rfp_log_pro.crds_start_time
+            # self.db_handler.db_entry.rfp_log_pro.crds_delivered
+            self.db_handler.db_entry.rfp_log_pro.end_time = get_datetime_db_format()
             self.db_handler.update_db_entry()
 
 
@@ -388,8 +383,3 @@ class DarkPipeline(Pipeline):
             logging.debug(f"    {file}")
 
         return short_dark_file_list, long_dark_file_list
-
-    @staticmethod
-    def _get_datetime_str_formatted():
-        now = datetime.now()
-        return now.strftime("%Y-%m-%d %H:%M:%S")

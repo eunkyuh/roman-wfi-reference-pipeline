@@ -23,6 +23,20 @@ class DBHandler:
     handling against the RTB DB via SQLAlchemy. It is intended to be
     constructed by the Pipeline base class, after configuration has been
     read and validated.
+
+    Usage:
+        The DB handler object will be automatically instantiated when you create a pipeline object through the Pipeline
+        base class.  Currently it is only writing to the rfp_log_pro table
+
+        # To get started from within the specific pipeline class
+        if self.use_rtbdb:
+            self.db_handler.new_pipeline_db_entry(ref_type=<ref_type>, wfi_mode=<mode>, reef_monitor=<setting from config>)
+
+        # To update with new information use format db_handler.db_entry.<table_name>.<table_field>
+        if self.db_handler:
+            self.db_handler.db_entry.rfp_log_pro.input_file_list = files
+            self.db_handler.update_db_entry()
+
     """
 
     def __init__(self, ref_type, use_dsn, sql_server_str=None, sql_database_str=None, port=None, dsn_header_str=None):
@@ -115,6 +129,7 @@ class DBHandler:
     def new_pipeline_db_entry(self, ref_type, wfi_mode, reef_monitor):
         """
         Initialize and insert a new logistics processing table row for this pipeline.
+        Currently only working with rfp_log_pro but add db_entry as parmeter if/when we need to expand
 
         Parameters
         ----------
@@ -130,5 +145,10 @@ class DBHandler:
         add_to_tables_from_class_list(self.db_engine, [self.db_entry.rfp_log_pro])
 
     def update_db_entry(self):
+        """
+        update the current database entry for this pipeline run.
+        Currently only working with rfp_log_pro but add db_entry as parmeter if/when we need to expand
+        """
+
         # Note: Currently not wrapping in a Try.  If database issues exist, please crash loudly
-        merge_db_entry(self.db_engine, self.db_entry)
+        merge_db_entry(self.db_engine, self.db_entry.rfp_log_pro)

@@ -1,7 +1,8 @@
 import logging
-from datetime import datetime
 
 import romancal
+
+from wfi_reference_pipeline.utilities.rtbdb_functions import get_datetime_db_format
 
 try:
     from rtb_db.constants.rfp_reef import DB_QC_INCOMPLETE
@@ -19,13 +20,6 @@ class DBEntry:
     def __init__(self):
         self.rfp_log_pro = None # DB entry for Logistics Processing Table
 
-    @staticmethod
-    def get_date_time_formatted():
-        """
-        Internal Database has this specific format required
-        """
-        return datetime.today().replace(microsecond=0)
-
     def init_rfp_log_pro(self, ref_type, wfi_mode, reef_monitor):
         """
         Initialize a logistics processing table object.
@@ -39,7 +33,7 @@ class DBEntry:
         reef_monitor : bool
             Expecting external monitoring for this run.
         """
-        start_time = self.get_date_time_formatted()
+        start_time = get_datetime_db_format()
         self.rfp_log_pro = RFPLogProTable(ref_type=ref_type,
                                           start_time=start_time,
                                           wfi_mode=wfi_mode,
