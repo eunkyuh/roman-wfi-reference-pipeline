@@ -1,2 +1,10 @@
 dark:
   multiprocess_superdark: true
+fgs_mask:
+  E_PER_DN: 2.0        # Conversion factor between electrons and DN
+  DEAD_SIGMA_THR: 5.0  # Stdevs below median slope to identify dead pixels
+  HOT_THR: 2.5         # Dark rate threshold (DN) above which pixels are flagged hot
+  SUPERHOT_THR: 20.0   # Dark rate threshold (DN) above which pixels are flagged superhot
+  HIGH_CDS_THR: 11     # CDS noise threshold (DN) above which pixels are flagged high CDS noise
+  LOW_QE_THR: 0.3      # Normalized super rate threshold below which pixels are flagged low QE
+  BAD_FLAT_THR: 0.0    # Normalized super rate threshold below which pixels are flagged bad flat field
