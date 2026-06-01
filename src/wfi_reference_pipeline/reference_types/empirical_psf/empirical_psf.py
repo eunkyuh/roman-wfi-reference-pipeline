@@ -1,12 +1,24 @@
+import numpy as np
 from roman_datamodels.datamodels import EpsfRefModel
 
-from ..reference_type import ReferenceType
 from wfi_reference_pipeline.resources.wfi_meta_empirical_psf import (
     WFIMetaEPSF,
 )
 
+from ..reference_type import ReferenceType
+
 
 class EmpiricalPSF(ReferenceType):
+    """Class EmpiricalPSF() inherits the ReferenceType() base class methods
+    where static meta data for all reference file types are written. The
+    method creates the asdf reference file.
+
+    Currently, there is a psf library generator that calls stpsf to simulate
+    psf reference files. This class mimics a workflow where the psf library is generated
+    from outside the class and is input as an object to be inserted into the data model.
+
+    A development script can produce the files - rfp_epsf_creation.py
+    """
 
     def __init__(
         self,
@@ -27,12 +39,16 @@ class EmpiricalPSF(ReferenceType):
         )
 
         if not isinstance(meta_data, WFIMetaEPSF):
-
             raise TypeError(
                 f"Meta Data has reftype "
                 f"{type(meta_data)}, "
                 f"expecting WFIMetaEPSF"
             )
+        
+        if not isinstance(psf, np.ndarray):
+            raise TypeError(
+                f"PSF data has type {type(psf)}, expecting numpy.ndarray"
+                )
 
         self.meta = meta_data
         self.outfile = outfile
@@ -45,10 +61,12 @@ class EmpiricalPSF(ReferenceType):
 
         self._update_meta_data()
 
-    # --------------------------------------------------------
-    # Metadata handling
-    # --------------------------------------------------------
+
     def _update_meta_data(self):
+        """
+        Update meta data for pixel lists if different from what is the standard 
+        in the dev meta maker.
+        """
 
         self.meta.pixel_x = list(
             self.meta.pixel_x
@@ -66,10 +84,11 @@ class EmpiricalPSF(ReferenceType):
             self.meta.defocus
         )
 
-    # --------------------------------------------------------
-    # Build ASDF tree and populate data model
-    # --------------------------------------------------------
+
     def populate_datamodel_tree(self):
+        """
+        Build the Roman datamodel tree for the EPSF reference file.
+        """
 
         epsf_datamodel_tree = EpsfRefModel()
         epsf_datamodel_tree["meta"] = self.meta.export_asdf_meta()

@@ -1,16 +1,12 @@
-import numpy as np
 from copy import deepcopy
 
-import stpsf
-from stpsf import roman
-
+import numpy as np
+import roman_datamodels as rdm
 import stsynphot as stsyn
 from astropy import units as u
-from scipy import ndimage
-
-import roman_datamodels as rdm
 from crds import getreferences
-
+from scipy import ndimage
+from stpsf import roman
 
 # ============================================================
 # Utilities
