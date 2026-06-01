@@ -7,6 +7,7 @@ from wfi_reference_pipeline.constants import (
     REF_TYPE_DARKDECAYSIGNAL,
     REF_TYPE_DETECTORSTATUS,
     REF_TYPE_ETC,
+    REF_TYPE_EPSF,
     REF_TYPE_FGS_MASK,
     REF_TYPE_FLAT,
     REF_TYPE_GAIN,
@@ -283,6 +284,9 @@ class MakeDevMeta:
 
         if ref_type == REF_TYPE_DETECTORSTATUS:
             self._create_dev_meta_detector_status(meta_data_params)
+
+        if ref_type == REF_TYPE_EPSF:
+            self._create_dev_meta_epsf(meta_data_params)
 
         if ref_type == REF_TYPE_ETC:
             self._create_dev_meta_etc(meta_data_params)
