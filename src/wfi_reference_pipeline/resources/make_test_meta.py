@@ -84,7 +84,7 @@ class MakeTestMeta:
     def _create_test_meta_etc(self, meta_data):
         self.meta_etc = WFIMetaETC(*meta_data)
 
-    def _create_test_meta_etc(self, meta_data):
+    def _create_test_meta_fgs_mask(self, meta_data):
         self.meta_etc = WFIMetaFGSMask(*meta_data)
 
     def _create_test_meta_flat(self, meta_data):

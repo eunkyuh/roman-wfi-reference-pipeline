@@ -1,8 +1,9 @@
 import logging
+
 import asdf
 import numpy as np
-from roman_datamodels.datamodels import FlatRefModel
 from astropy import units as u
+from roman_datamodels.datamodels import FlatRefModel
 
 from wfi_reference_pipeline.constants import (
     SCI_PIXEL_X_COUNT,

@@ -5,9 +5,9 @@ from collections.abc import Iterable
 import asdf
 import astropy.units as u
 import numpy as np
-from roman_datamodels.datamodels import LinearityRefModel
 from astropy.stats import sigma_clipped_stats
-from roman_datamodels import dqflags 
+from roman_datamodels import dqflags
+from roman_datamodels.datamodels import LinearityRefModel
 
 from wfi_reference_pipeline.constants import (
     WFI_FRAME_TIME,
@@ -179,7 +179,7 @@ class Linearity(ReferenceType):
         """
 
         # Construct the linearity object from the data model.
-        linearity_datamodel_tree = rds.LinearityRef()
+        linearity_datamodel_tree = LinearityRefModel()
         linearity_datamodel_tree['meta'] = self.meta
         if self.fit_complete:
             nonlinear_pixels = ((self.dq_mask == float('NaN')) |
@@ -481,7 +481,7 @@ def _save_linearity(outfile, meta, coeffs, mask, clobber=False, unc=None):
     clobber: bool; If True, it allows overwritting a previous linearity file.
     unc: numpy.ndarray; Uncertainty of the coefficients, coeffs.
     """
-    linearityfile = rds.LinearityRef()
+    linearityfile = LinearityRefModel()
     linearityfile['meta'] = meta
     linearityfile['coeffs'] = coeffs
     nonlinear_pixels = (mask == float('NaN')) | (coeffs[0, :, :] == float('NaN'))

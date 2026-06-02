@@ -1,6 +1,4 @@
-
-
-import roman_datamodels.stnode as rds
+from roman_datamodels.datamodels import DetectorstatusRefModel
 
 from wfi_reference_pipeline.resources.wfi_meta_detector_status import (
     WFIMetaDetectorStatus,
@@ -113,7 +111,7 @@ class DetectorStatus(ReferenceType):
         """
         Build the Roman datamodel tree for the detector status reference.
         """
-        det_status_datamodel_tree = rds.DetectorstatusRef()
+        det_status_datamodel_tree = DetectorstatusRefModel()
         det_status_datamodel_tree["meta"] = self.meta_data.export_asdf_meta()
         det_status_datamodel_tree["status_info"] = self.status_info_dict
 

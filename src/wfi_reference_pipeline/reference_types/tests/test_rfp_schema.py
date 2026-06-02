@@ -1,4 +1,5 @@
 import os
+
 import asdf
 import numpy as np
 import pytest
@@ -9,7 +10,13 @@ from wfi_reference_pipeline.constants import (
 )
 from wfi_reference_pipeline.reference_types.dark.dark import Dark
 from wfi_reference_pipeline.reference_types.dark_decay_signal.dark_decay_signal import (
-    DarkDecaySignal
+    DarkDecaySignal,
+)
+from wfi_reference_pipeline.reference_types.detector_status.detector_status import (
+    DetectorStatus,
+)
+from wfi_reference_pipeline.reference_types.exposure_time_calculator.exposure_time_calculator import (
+    ExposureTimeCalculator,
 )
 from wfi_reference_pipeline.reference_types.flat.flat import Flat
 from wfi_reference_pipeline.reference_types.gain.gain import Gain
@@ -81,6 +88,56 @@ class TestSchema():
         tf = asdf.AsdfFile()
         tf.tree = {
             'roman': rfp_dark_decay.populate_datamodel_tree()
+        }
+
+        # Validate method returns list of exceptions the json schema file failed to match.
+        # If none, then datamodel tree is valid.
+        assert tf.validate() is None
+
+    def test_rfp_detector_status_schema(self):
+        """
+        Use the WFI reference file pipeline DetectorStatus() module
+        to build a testable object which is then validated against
+        the DMS reference file schema.
+        """
+
+        # Make test meta
+        tmp = MakeTestMeta(ref_type='DETECTORSTATUS')
+
+        # Make RFP DetectorStatus reference file object for testing
+        rfp_detector_status = DetectorStatus(
+            meta_data=tmp.meta_detector_status
+        )
+
+        # Make test asdf tree
+        tf = asdf.AsdfFile()
+        tf.tree = {
+            'roman': rfp_detector_status.populate_datamodel_tree()
+        }
+
+        # Validate method returns list of exceptions the json schema file failed to match.
+        # If none, then datamodel tree is valid.
+        assert tf.validate() is None
+
+    def test_rfp_exposure_time_calculator_schema(self):
+        """
+        Use the WFI reference file pipeline ExposureTimeCalculator()
+        module to build a testable object which is then validated
+        against the DMS reference file schema.
+        """
+
+        # Make test meta
+        tmp = MakeTestMeta(ref_type='ETC')
+
+        # Make RFP ExposureTimeCalculator reference file object for testing
+        rfp_etc = ExposureTimeCalculator(
+            meta_data=tmp.meta_etc
+        )
+
+        # Make test asdf tree
+        tf = asdf.AsdfFile()
+        tf.tree = {
+            'roman': rfp_etc.populate_datamodel_tree()
         }
 
         # Validate method returns list of exceptions the json schema file failed to match.

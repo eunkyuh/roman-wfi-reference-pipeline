@@ -1,8 +1,8 @@
 import logging
 
 import numpy as np
-from roman_datamodels.datamodels import GainRefModel
 from astropy import units as u
+from roman_datamodels.datamodels import GainRefModel
 
 from wfi_reference_pipeline.resources.wfi_meta_gain import WFIMetaGain
 

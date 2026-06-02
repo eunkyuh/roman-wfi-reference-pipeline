@@ -4,9 +4,9 @@ import os
 
 import asdf
 import numpy as np
-from roman_datamodels.datamodels import ReadnoiseRefModel
 from astropy import units as u
 from astropy.stats import sigma_clip
+from roman_datamodels.datamodels import ReadnoiseRefModel
 
 from wfi_reference_pipeline.reference_types.data_cube import DataCube
 from wfi_reference_pipeline.resources.wfi_meta_readnoise import WFIMetaReadNoise

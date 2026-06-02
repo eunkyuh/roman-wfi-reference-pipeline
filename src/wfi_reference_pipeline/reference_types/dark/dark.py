@@ -2,8 +2,8 @@ import logging
 
 import asdf
 import numpy as np
-from roman_datamodels.datamodels import DarkRefModel
 from astropy import units as u
+from roman_datamodels.datamodels import DarkRefModel
 
 from wfi_reference_pipeline.constants import (
     DETECTOR_PIXEL_X_COUNT,

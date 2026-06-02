@@ -1,5 +1,7 @@
 import logging
+
 from roman_datamodels.datamodels import DarkdecaysignalRefModel
+
 from wfi_reference_pipeline.resources.wfi_meta_dark_decay_signal import (
     WFIMetaDarkDecaySignal,
 )

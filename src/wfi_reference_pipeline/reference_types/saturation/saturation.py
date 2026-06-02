@@ -1,8 +1,8 @@
 import logging
 
 import numpy as np
-from roman_datamodels.datamodels import SaturationRefModel
 from astropy import units as u
+from roman_datamodels.datamodels import SaturationRefModel
 
 from wfi_reference_pipeline.constants import (
     DETECTOR_PIXEL_X_COUNT,

@@ -7,9 +7,9 @@ import asdf
 import numpy as np
 import pandas as pd
 import roman_datamodels as rdm
-from roman_datamodels.datamodels import MaskRefModel
 from astropy.convolution import Box2DKernel, convolve
 from astropy.io import fits
+from roman_datamodels.datamodels import MaskRefModel
 from roman_datamodels.dqflags import pixel as dqflags
 from scipy.optimize import curve_fit
 from scipy.stats import anderson, kurtosis, linregress, skew

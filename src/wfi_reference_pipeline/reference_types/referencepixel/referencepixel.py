@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 import roman_datamodels as rdm
-from roman_datamodels.datamodels import RefpixRefModel
 from astropy import units as u
+from roman_datamodels.datamodels import RefpixRefModel
 
 from wfi_reference_pipeline.resources.wfi_meta_referencepixel import (
     WFIMetaReferencePixel,

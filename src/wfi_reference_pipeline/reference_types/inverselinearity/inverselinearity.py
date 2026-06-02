@@ -1,9 +1,9 @@
 import logging
 
 import numpy as np
-from roman_datamodels.datamodels import InverselinearityRefModel
 from astropy import units as u
 from astropy.io import fits
+from roman_datamodels.datamodels import InverselinearityRefModel
 
 from wfi_reference_pipeline.resources.wfi_meta_inverselinearity import (
     WFIMetaInverseLinearity,
