@@ -4,7 +4,7 @@ import tempfile
 
 import numpy as np
 import pytest
-from romancal.lib import dqflags
+from roman_datamodels import dqflags
 
 from wfi_reference_pipeline.constants import WFI_FRAME_TIME, WFI_MODE_WIM
 from wfi_reference_pipeline.reference_types.linearity.linearity import (
