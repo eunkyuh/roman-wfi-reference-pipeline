@@ -1,7 +1,14 @@
-import numpy as np
-import roman_datamodels.stnode as rds
+import logging
+from math import atan2, hypot, sin
 
-from wfi_reference_pipeline.resources.wfi_meta_pixel_area import WFIMetaPixelArea
+import numpy as np
+import pysiaf
+from astropy import units as u
+from roman_datamodels.datamodels import PixelareaRefModel
+
+from wfi_reference_pipeline.resources.wfi_meta_pixel_area import (
+    WFIMetaPixelArea,
+)
 
 from ..reference_type import ReferenceType
 
@@ -12,6 +19,22 @@ class PixelArea(ReferenceType):
     where static meta data for all reference file types are written. The
     method creates the asdf reference file.
 
+    The pixel area map is generated from the Roman SIAF distortion
+    polynomials. The Jacobian determinant of the distortion transform
+    is evaluated across the detector and normalized by the nominal
+    pixel area at the reference location.
+
+    Examples
+    --------
+
+    from wfi_reference_pipeline.reference_types.pixel_area.pixel_area import PixelArea
+    from wfi_reference_pipeline.resources.make_dev_meta import MakeDevMeta
+
+    tmp = MakeDevMeta(ref_type="PIXELAREA")
+    tmp.meta_pixelarea
+    WFIMetaPixelArea(reference_type='PIXELAREA', pedigree='DUMMY', description='For RFP Development and DMS Build Support.', author='RFP', _use_after=<Time object: scale='utc' format='isot' value=2023-01-01T00:00:00.000>, telescope='ROMAN', origin='STSCI', instrument='WFI', instrument_detector='WFI01', pixelarea_steradians=np.float64(2.844036095230844e-13), pixelarea_arcsecsq=np.float64(0.0121))
+
+    rfp_pam = PixelArea(meta_data=tmp.meta_pixelarea)
 
 
     """
@@ -69,11 +92,29 @@ class PixelArea(ReferenceType):
         if len(self.meta_data.description) == 0:
             self.meta_data.description = "Roman WFI pixel area reference file."
 
-        if ref_type_data is None:
-            ref_type_data = make_pam_array()
-        self.pixel_area = ref_type_data    
+        self.siaf = pysiaf.Siaf("Roman")
 
-        self.outfile = outfile    
+        detector = self.meta_data.instrument_detector
+
+        if detector is None:
+            raise ValueError(
+                "instrument_detector must be supplied in metadata."
+            )
+
+        self.detector = detector.upper()
+
+        self.x_coeffs = None
+        self.y_coeffs = None
+        self.nominal_pixel_area = None
+
+        if ref_type_data is not None:
+            self.pixel_area = ref_type_data
+        else:
+            self.pixel_area = self.make_pixel_area_image()
+
+        logging.debug(
+            f"Initialized PixelArea reference file: {outfile}"
+        )
 
     def calculate_error(self):
         """
@@ -87,19 +128,204 @@ class PixelArea(ReferenceType):
         """
         pass
 
+    def make_pixel_area_image(self,
+                              include_border=False,
+                              refpix_area=False,
+                              ):
+        """
+        Generate a normalized pixel area map.
+
+        Parameters
+        ----------
+        include_border : bool
+            Include reference pixel border.
+
+        refpix_area : bool
+            If include_border=True, compute areas for reference pixels.
+            Otherwise set them to zero.
+
+        Returns
+        -------
+        numpy.ndarray
+            Normalized pixel area map.
+        """
+
+        self.x_coeffs, self.y_coeffs = self.get_coeffs()
+
+        nominal_area = self.get_nominal_area()
+
+        det_size = 2048 if include_border else 2044
+
+        pixels = np.mgrid[
+            -det_size:det_size,
+            -det_size:det_size,
+        ]
+
+        y = pixels[0]
+        x = pixels[1]
+
+        pixel_area = self.jacob(
+            self.x_coeffs,
+            self.y_coeffs,
+            x,
+            y,
+            order=5,
+        ).astype(np.float32)
+
+        pixel_area /= nominal_area.value
+
+        if include_border and not refpix_area:
+            pixel_area[:4, :] = 0
+            pixel_area[-4:, :] = 0
+            pixel_area[:, :4] = 0
+            pixel_area[:, -4:] = 0
+
+        self.nominal_pixel_area = nominal_area
+
+        self.meta_data.pixelarea_arcsecsq = (
+            nominal_area.to(u.arcsec * u.arcsec).value
+        )
+
+        self.meta_data.pixelarea_steradians = (
+            nominal_area.to(u.sr).value
+        )
+
+        return pixel_area
+
     def populate_datamodel_tree(self):
         """
         Build the Roman datamodel tree for the pixel area map reference.
         """
-        pam_ref = rds.PixelareaRef()
+        pam_ref = PixelareaRefModel()
         pam_ref["meta"] = self.meta_data.export_asdf_meta()
         pam_ref["data"] = self.pixel_area.astype(np.float32)
 
         return pam_ref
 
 
-def make_pam_array():
+    def get_coeffs(self):
+        """
+        Retrieve distortion coefficients from Roman SIAF.
 
-    arr = np.random.uniform(0.98, 1.02, size=(4096, 4096))
+        Returns
+        -------
+        tuple
+            (x_coeffs, y_coeffs)
+        """
 
-    return arr
+        aperture_name = f"{self.detector}_FULL"
+
+        coeffs = self.siaf[
+            aperture_name
+        ].get_polynomial_coefficients()
+
+        return (
+            coeffs["Sci2IdlX"],
+            coeffs["Sci2IdlY"],
+        )
+
+    def get_nominal_area(self):
+        """
+        Compute nominal reference pixel area.
+
+        Returns
+        -------
+        astropy.units.Quantity
+        """
+
+        x_scale = hypot(
+            self.x_coeffs[1],
+            self.y_coeffs[1],
+        )
+
+        y_scale = hypot(
+            self.x_coeffs[2],
+            self.y_coeffs[2],
+        )
+
+        bx = atan2(
+            self.x_coeffs[1],
+            self.y_coeffs[1],
+        )
+
+        pixel_area = (
+            x_scale
+            * y_scale
+            * sin(bx)
+            * u.arcsec
+            * u.arcsec
+        )
+
+        return pixel_area
+
+    @staticmethod
+    def dpdx(a, x, y, order=5):
+        """
+        Partial derivative with respect to X.
+        """
+
+        partial_x = 0.0
+
+        k = 1
+
+        for i in range(1, order + 1):
+            for j in range(i + 1):
+
+                if i - j > 0:
+                    partial_x += (
+                        (i - j)
+                        * a[k]
+                        * x ** (i - j - 1)
+                        * y ** j
+                    )
+
+                k += 1
+
+        return partial_x
+
+    @staticmethod
+    def dpdy(a, x, y, order=5):
+        """
+        Partial derivative with respect to Y.
+        """
+
+        partial_y = 0.0
+
+        k = 1
+
+        for i in range(1, order + 1):
+            for j in range(i + 1):
+
+                if j > 0:
+                    partial_y += (
+                        j
+                        * a[k]
+                        * x ** (i - j)
+                        * y ** (j - 1)
+                    )
+
+                k += 1
+
+        return partial_y
+
+    @classmethod
+    def jacob(
+        cls,
+        a,
+        b,
+        x,
+        y,
+        order=5,
+    ):
+        """
+        Compute Jacobian determinant.
+        """
+
+        jacobian = (
+            cls.dpdx(a, x, y, order=order)
+            * cls.dpdy(b, x, y, order=order)
+            - cls.dpdx(b, x, y, order=order)
+            * cls.dpdy(a, x, y, order=order)
+        )
+
+        return np.abs(jacobian)
