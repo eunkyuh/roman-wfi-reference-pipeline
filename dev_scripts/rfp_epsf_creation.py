@@ -31,10 +31,7 @@ PIXEL_Y = [
 def process_detector_filter(detector, optical_element):
     """
     Generate the PSF object library per detector and filter
-    
     """
-
-
     meta = MakeDevMeta(ref_type="EPSF").meta_epsf
 
     meta.instrument_detector = f"WFI{detector:02d}"
@@ -58,7 +55,6 @@ def process_detector_filter(detector, optical_element):
     )
 
     output_dir = Path("/grp/roman/RFP/DEV/scratch")
-
     outfile = output_dir / (
         f"wfi{detector:02d}_"
         f"{optical_element.lower()}_epsf.asdf"
@@ -74,11 +70,7 @@ def process_detector_filter(detector, optical_element):
         clobber=True,
     )
 
-
-
     return epsf, epsf.generate_outfile()
-
-
 
 
 # ============================================================
@@ -87,7 +79,6 @@ def process_detector_filter(detector, optical_element):
 def main(n_workers=0):
 
     detectors = range(1, 2) # change to do all detectors when ready
-
     # and then parallelize
     # --------------------------------------------------------
     # SERIAL MODE (n_workers = 0)
@@ -126,11 +117,8 @@ def main(n_workers=0):
     # PARALLEL MODE
     # --------------------------------------------------------
     print(f"Running in PARALLEL mode with {n_workers} workers.")
-
     client = Client(n_workers=n_workers)
-
     print(f"Dask dashboard: {client.dashboard_link}")
-
     tasks = []
 
     for detector in detectors:
@@ -143,9 +131,7 @@ def main(n_workers=0):
                     optical_element,
                 )
             )
-
     client.gather(tasks)
-
     client.close()
 
 
