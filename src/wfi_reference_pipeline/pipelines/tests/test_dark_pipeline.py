@@ -48,7 +48,7 @@ def mock_prep_internals(mocker):
 
 def test_init_sets_correct_ref_type_pass(pipeline):
     """
-    Pipeline should report the correct readnoise reference type
+    Pipeline should report the correct reference type
     """
     assert pipeline.ref_type == REF_TYPE_DARK
 
