@@ -4,7 +4,7 @@ from pathlib import Path
 import yaml
 
 from wfi_reference_pipeline.constants import REF_TYPE_ETC, REF_TYPE_EPSF
-from wfi_reference_pipeline.reference_types.exposure_time_calculator.exposure_time_calculator import ExposureTimeCalculator, update_etc_form_from_crds
+from wfi_reference_pipeline.reference_types.exposure_time_calculator.exposure_time_calculator import ExposureTimeCalculator
 
 from wfi_reference_pipeline.resources.make_test_meta import MakeTestMeta
 from wfi_reference_pipeline.resources.wfi_meta_exposure_time_calculator import (
