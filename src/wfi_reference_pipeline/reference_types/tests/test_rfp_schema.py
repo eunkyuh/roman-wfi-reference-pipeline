@@ -23,6 +23,9 @@ from wfi_reference_pipeline.reference_types.gain.gain import Gain
 from wfi_reference_pipeline.reference_types.inter_pixel_capacitance.inter_pixel_capacitance import (
     InterPixelCapacitance,
 )
+from wfi_reference_pipeline.reference_types.inverse_linearity.inverse_linearity import (
+    InverseLinearity,
+)
 from wfi_reference_pipeline.reference_types.linearity.linearity import Linearity
 from wfi_reference_pipeline.reference_types.mask.mask import Mask
 from wfi_reference_pipeline.reference_types.readnoise.readnoise import ReadNoise
@@ -203,6 +206,30 @@ class TestSchema():
         # Make test asdf tree
         tf = asdf.AsdfFile()
         tf.tree = {'roman': rfp_ipc.populate_datamodel_tree()}
+        # Validate method returns list of exceptions the json schema file failed to match.
+        # If none, then datamodel tree is valid.
+        assert tf.validate() is None
+
+    def test_rfp_inverse_linearity_schema(self):
+        """
+        Use the WFI reference file pipeline Inverse Linearity() module to build a testable
+        object which is the validated against the DMS reference file schema.
+        """
+
+        # Make test meta and data.
+        tmp = MakeTestMeta(ref_type='INVERSELINEARITY')
+
+        # Make RFP Inverse Linearity reference file object for testing.
+        test_data = np.ones((7, 1, 1),
+                            dtype=np.float32)  # Dimensions of coefficients are 7x1x1.
+
+        rfp_inv_lin = InverseLinearity(meta_data=tmp.meta_inverselinearity,
+                                  ref_type_data=test_data
+                                  )
+
+        # Make test asdf tree
+        tf = asdf.AsdfFile()
+        tf.tree = {'roman': rfp_inv_lin.populate_datamodel_tree()}
         # Validate method returns list of exceptions the json schema file failed to match.
         # If none, then datamodel tree is valid.
         assert tf.validate() is None

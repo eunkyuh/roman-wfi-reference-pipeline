@@ -1,5 +1,8 @@
 from astropy import units as u
 
+from src.wfi_reference_pipeline.resources.wfi_meta_inverse_linearity import (
+    WFIMetaInverseLinearity,
+)
 from wfi_reference_pipeline.constants import (
     REF_TYPE_ABVEGAMAGNITUDEOFFSET,
     REF_TYPE_APERTURECORRECTION,
@@ -53,9 +56,6 @@ from wfi_reference_pipeline.resources.wfi_meta_integral_non_linearity import (
 )
 from wfi_reference_pipeline.resources.wfi_meta_inter_pixel_capacitance import (
     WFIMetaInterPixelCapacitance,
-)
-from wfi_reference_pipeline.resources.wfi_meta_inverselinearity import (
-    WFIMetaInverseLinearity,
 )
 from wfi_reference_pipeline.resources.wfi_meta_linearity import WFIMetaLinearity
 from wfi_reference_pipeline.resources.wfi_meta_mask import WFIMetaMask
@@ -176,7 +176,7 @@ class MakeDevMeta:
         linearity_meta_data = [input_units, output_units]
         self.meta_linearity = WFIMetaLinearity(*meta_data, *linearity_meta_data)
 
-    def _create_dev_meta_inverselinearity(self, meta_data):
+    def _create_dev_meta_inverse_linearity(self, meta_data):
         input_units = u.DN
         output_units = u.DN
 
@@ -304,7 +304,7 @@ class MakeDevMeta:
             self._create_dev_meta_integral_non_linearity(meta_data_params)
 
         if ref_type == REF_TYPE_INVERSELINEARITY:
-            self._create_dev_meta_inverselinearity(meta_data_params)
+            self._create_dev_meta_inverse_linearity(meta_data_params)
 
         if ref_type == REF_TYPE_INTERPIXELCAPACITANCE:
             self._create_dev_meta_inter_pixel_capacitance(meta_data_params)
