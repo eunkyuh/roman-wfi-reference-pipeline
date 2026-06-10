@@ -20,182 +20,182 @@ common:
   readnoise_excess_scaling: 1.0
 detectors:
   WFI01:
-    saturation_on: true  # Saturation used in ETC
-    saturation_fullwell: 60000.0  # Median saturation limit in DN (counts)
-    dark_current_on: true  # Dark used in ETC
-    dark_current: 0.0  # Average dark in DN/s (counts/sec)
-    readnoise_on: true  # Read noise used in ETC
-    readnoise: 6.196895122528076  # Read noise value in DN (counts)
-    readnoise_correlation_on: false  
-    flat_field_noise_on: true  
-    flat_field_electrons: 716.3978518135043
+    saturation_on: true
+    saturation_fullwell: 100000
+    dark_current_on: true
+    dark_current: 0.01
+    readnoise_on: true
+    readnoise: 11.44
+    readnoise_correlation_on: false
+    flat_field_noise_on: true
+    flat_field_electrons: 1000000
   WFI02:
     saturation_on: true
-    saturation_fullwell: 60000.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.647524833679199
+    readnoise: 9.77
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 564.5276615439435
+    flat_field_electrons: 1000000
   WFI03:
     saturation_on: true
-    saturation_fullwell: 58905.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.895864486694336
+    readnoise: 10.0
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 706.3434790868706
+    flat_field_electrons: 1000000
   WFI04:
     saturation_on: true
-    saturation_fullwell: 57456.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 6.098455905914307
+    readnoise: 10.36
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 843.5802452844152
+    flat_field_electrons: 1000000
   WFI05:
     saturation_on: true
-    saturation_fullwell: 58412.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.49294376373291
+    readnoise: 9.6
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 695.902974053243
+    flat_field_electrons: 1000000
   WFI06:
     saturation_on: true
-    saturation_fullwell: 58875.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.867035865783691
+    readnoise: 9.24
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 751.3834779497772
+    flat_field_electrons: 1000000
   WFI07:
     saturation_on: true
-    saturation_fullwell: 58803.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 4.798841953277588
+    readnoise: 9.21
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 604.0132499033344
+    flat_field_electrons: 1000000
   WFI08:
     saturation_on: true
-    saturation_fullwell: 58044.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.192303657531738
+    readnoise: 8.55
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 298.11534095713534
+    flat_field_electrons: 1000000
   WFI09:
     saturation_on: true
-    saturation_fullwell: 60000.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.247626304626465
+    readnoise: 8.93
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 1276.6796640589087
+    flat_field_electrons: 1000000
   WFI10:
     saturation_on: true
-    saturation_fullwell: 59526.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.8629608154296875
+    readnoise: 10.69
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 1306.3757588097048
+    flat_field_electrons: 1000000
   WFI11:
     saturation_on: true
-    saturation_fullwell: 58092.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.392239093780518
+    readnoise: 9.62
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 906.350929662245
+    flat_field_electrons: 1000000
   WFI12:
     saturation_on: true
-    saturation_fullwell: 59749.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.722226619720459
+    readnoise: 9.48
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 1057.6265876428877
+    flat_field_electrons: 1000000
   WFI13:
     saturation_on: true
-    saturation_fullwell: 58935.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 6.1576361656188965
+    readnoise: 10.99
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 1362.3101423839423
+    flat_field_electrons: 1000000
   WFI14:
     saturation_on: true
-    saturation_fullwell: 59538.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.320662498474121
+    readnoise: 9.21
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 650.2957900562842
+    flat_field_electrons: 1000000
   WFI15:
     saturation_on: true
-    saturation_fullwell: 57992.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.197111129760742
+    readnoise: 9.1
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 1017.4222410858433
+    flat_field_electrons: 1000000
   WFI16:
     saturation_on: true
-    saturation_fullwell: 58192.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.3603339195251465
+    readnoise: 9.38
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 1381.4956280438923
+    flat_field_electrons: 1000000
   WFI17:
     saturation_on: true
-    saturation_fullwell: 60000.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.908330917358398
+    readnoise: 8.83
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 1912.2918564681436
+    flat_field_electrons: 1000000
   WFI18:
     saturation_on: true
-    saturation_fullwell: 60000.0
+    saturation_fullwell: 100000
     dark_current_on: true
-    dark_current: 0.0
+    dark_current: 0.01
     readnoise_on: true
-    readnoise: 5.755289077758789
+    readnoise: 8.68
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 951.1774635771062
+    flat_field_electrons: 1000000
