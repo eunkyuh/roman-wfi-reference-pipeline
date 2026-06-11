@@ -21,14 +21,14 @@ common:
 detectors:
   WFI01:
     saturation_on: true
-    saturation_fullwell: 100000
-    dark_current_on: true
-    dark_current: 0.01
-    readnoise_on: true
-    readnoise: 11.44
+    saturation_fullwell: 100000  # Typical fullwell depth. Used to determine the saturation by the ETC
+    dark_current_on: true  # Dark used in ETC
+    dark_current: 0.01  # Median dark value in electrons/s
+    readnoise_on: true  # Read noise used in ETC
+    readnoise: 11.44  # Median read noise value in electrons
     readnoise_correlation_on: false
     flat_field_noise_on: true
-    flat_field_electrons: 1000000
+    flat_field_electrons: 1000000  # Total number of electrons in the superflat. Used to determine the flat fielding error by the ETC
   WFI02:
     saturation_on: true
     saturation_fullwell: 100000

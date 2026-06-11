@@ -9,7 +9,7 @@ import numpy as np
 import roman_datamodels as rdm
 import yaml
 from crds.client import api
-from roman_datamodels.datamodels import EtcRefModel  # need roman_datamodels >= 0.31.0
+from roman_datamodels.datamodels import EtcRefModel
 
 from wfi_reference_pipeline.resources.wfi_meta_exposure_time_calculator import (
     WFIMetaETC,
@@ -229,15 +229,16 @@ def update_etc_form_from_crds(output_dir):
         try:
             with rdm.open(filepath) as ref:
                 det = ref.meta.instrument.detector
-                val = float(np.median(ref.data)) * gain_vals[det]
+                val = float(np.median(ref.data)) * gain_vals[det]   # ETC operates in electrons - applying the gain to convert DN to electron
             if det in detectors_form:
                 detectors_form[det].update({
-                    "readnoise": round(val, 2),
+                    "readnoise": round(val, 3),     # ETC's numerical precision is 2 or 3 decimal places for the pixel-scale related values
                     "readnoise_on": True
                 })
-                print(f"{det}: readnoise -> {val:.2f}")
+                print(f"{det}: readnoise -> {val:.3f}")
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
+
 
     # -------------------------------
     # DARK CURRENT: update dark_current with median of dark current rate array
@@ -249,10 +250,10 @@ def update_etc_form_from_crds(output_dir):
             with rdm.open(filepath) as ref:
                 det = ref.meta.instrument.detector
                 #val = float(np.median(ref.dark_slope)) * gain_vals[det]
-                val = 0.01
+                val = 0.01      # Hard-coding to a value as of 06/08/2026 until we converge on the workflow
             if det in detectors_form:
                 detectors_form[det].update({
-                    "dark_current": round(val, 4),
+                    "dark_current": round(val, 3),  # ETC's numerical precision is 2 or 3 decimal places for the pixel-scale related values
                     "dark_current_on": True
                 })
                 print(f"{det}: dark_current -> {val:.3f}")
@@ -311,6 +312,7 @@ def update_etc_form_from_crds(output_dir):
         except Exception as e:
             print(f"Failed to process saturation {filepath}: {e}")
 
+
     # -------------------------------
     # Write updated config
     # -------------------------------
@@ -318,3 +320,53 @@ def update_etc_form_from_crds(output_dir):
         yaml.safe_dump(form, f, sort_keys=False)
 
     print(f"Updated ETC form file saved to: {ETC_FORM}")
+
+
+# -------------------------------
+# Optional: for RTB internal use only
+# Extra function to add the following comments only to WFI01 to have information of what the detector keys are for
+# This information is internal to RTB and does not appear in the converted ASDF file
+# -------------------------------
+def add_eol_comments_for_wfi01(yaml_file, comment_map):
+    """
+    Update ETC YAML form once more to add useful information on what each parameter is in the ETC
+    This function is useful for the RTB internal usage. 
+    """
+    """
+
+    Parameters
+    ----------
+    yaml_file : str
+        Path to the directory where the yaml file leaves.
+    comment_map: dict
+        A dictionary containing the key and the comments 
+    """
+    with open(yaml_file, 'r') as f:
+        lines = f.readlines()
+
+    modified_lines = []
+
+    # A counter is needed to only add comments to the WFI01 contents
+    count = 0
+    
+    for line in lines:
+        count += 1
+
+        # WFI01's parameters are from lines 23-31
+        if (count >= 22) and (count <= 31):
+            # Check if the line contains a key we want to comment
+            for key, comment in comment_map.items():
+                # Matches keys followed by a colon
+                if (key+':') in line:
+                    # Strip trailing newlines, spaces, append comment, and add newline back
+                    stripped = line.rstrip('\r\n')
+                    line = f"{stripped}  # {comment}\n"                    
+        else:
+            # Do not touch anything out of WFI01's content
+            line = line
+        modified_lines.append(line)
+
+    with open(yaml_file, 'w') as f:
+        f.writelines(modified_lines)
+
+
