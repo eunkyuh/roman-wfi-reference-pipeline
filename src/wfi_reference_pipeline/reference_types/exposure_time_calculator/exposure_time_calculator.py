@@ -176,6 +176,12 @@ def update_etc_form_from_crds(output_dir):
     # -------------------------------
     # Locally download all reference files needed to update ETC config
     # -------------------------------
+    
+    # ETC operates in e- and e-/s
+    # All detector parameters need to be gain-corrected
+    gain_files = crds.rmap.load_mapping(crds.get_default_context()).get_imap('wfi').get_rmap('gain').reference_names()
+    results = api.dump_references(crds_context, gain_files)
+    gain_filepaths = list(results.values())
 
     readnoise_files = crds.rmap.load_mapping(crds.get_default_context()).get_imap('wfi').get_rmap('readnoise').reference_names()
     results = api.dump_references(crds_context, readnoise_files)
@@ -195,6 +201,27 @@ def update_etc_form_from_crds(output_dir):
     results = api.dump_references(crds_context, saturation_files)
     saturation_filepaths = list(results.values())
 
+
+    # -------------------------------
+    # GAIN: grab gain files and take the median of the data array
+    # The gain files from CRDS do not have the correction factor to account for IPC baked in
+    # This factor (~1.08) needs to be applied across-the-board to convert DNs to electrons
+    # -------------------------------
+    gain_vals = {}          # Create an empty dictionary to store the gain values for each detector
+    for filepath in gain_filepaths:
+        try:
+            with rdm.open(filepath) as ref:
+                det = ref.meta.instrument.detector
+                val = float(np.median(ref.data))
+                val_corrected = val / 1.08
+                print(f"{det}: gain -> {val:.2f}, gain_corrected -> {val_corrected:.2f}")
+
+                # Save the gain values in the dictionary to convert DNs to electrons 
+                # for the rest of the detector parameters
+                gain_vals[det] = val_corrected
+        except Exception as e:
+            print(f"Error reading {filepath}: {e}")
+
     # -------------------------------
     # READNOISE: update readnoise with median readnoise from data array
     # -------------------------------
@@ -202,27 +229,31 @@ def update_etc_form_from_crds(output_dir):
         try:
             with rdm.open(filepath) as ref:
                 det = ref.meta.instrument.detector
-                val = float(np.median(ref.data))
+                val = float(np.median(ref.data)) * gain_vals[det]   # ETC operates in electrons - applying the gain to convert DN to electron
             if det in detectors_form:
                 detectors_form[det].update({
-                    "readnoise": val,
+                    "readnoise": round(val, 3),     # ETC's numerical precision is 2 or 3 decimal places for the pixel-scale related values
                     "readnoise_on": True
                 })
-                print(f"{det}: readnoise -> {val:.2f}")
+                print(f"{det}: readnoise -> {val:.3f}")
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
 
+
     # -------------------------------
-    # DARK CURRENT: update dark_current with mean of dark current rate array
+    # DARK CURRENT: update dark_current with median of dark current rate array
+    # As of 06/09/26, we are hard-coding the dark value to be 0.01 until 
+    # new reference files and our workflow are further refined
     # -------------------------------
     for filepath in dark_filepaths:
         try:
             with rdm.open(filepath) as ref:
                 det = ref.meta.instrument.detector
-                val = float(np.mean(ref.dark_slope))
+                #val = float(np.median(ref.dark_slope)) * gain_vals[det]
+                val = 0.01      # Hard-coding to a value as of 06/08/2026 until we converge on the workflow
             if det in detectors_form:
                 detectors_form[det].update({
-                    "dark_current": val,
+                    "dark_current": round(val, 3),  # ETC's numerical precision is 2 or 3 decimal places for the pixel-scale related values
                     "dark_current_on": True
                 })
                 print(f"{det}: dark_current -> {val:.3f}")
@@ -231,39 +262,56 @@ def update_etc_form_from_crds(output_dir):
 
     # -------------------------------
     # FLAT FIELD: update flat_field_electrons
+    # As of R2026.1, the ETC is set to compute the flat fielding error from the total number of electrons in the superflat image.
+    # Starting with R2027.3, RTB requested that the engine takes the flat field uncertainty we provide in the flat reference file.
+    # When the time comes, rename flat_field_electrons in the yaml to flat_field_uncertainty
     # -------------------------------
+
     for filepath in flat_filepaths:
         try:
             with rdm.open(filepath) as ref:
                 if ref.meta.instrument.optical_element == 'F062':
                     det = ref.meta.instrument.detector
-                    std_val = float(np.std(ref.data))
-                    ff_electrons = 1.0 / (std_val ** 2)
+                    ff_electrons = 1000000      # Hard-coding to a nominal value as of 06/08/2026
+                    '''
+                    # Replace the above hard-coded value with this part
+                    # In the future, the engine will be using the flat field uncertainty provided by RTB as-is
+                    # rather than computing the value from the number of electrons from the superflat itself.
+                    
+                    if (ref.err != None) or (ref.err != 0):
+                        ff_electrons = float(np.nanmedian(ref.err)) * gain_vals[det]
+                    else:
+                        ff_electrons = np.nanstd(ref.data) * gain_vals[det]
+                    '''
                     if det in detectors_form:
                         detectors_form[det].update({
-                            "flat_field_electrons": ff_electrons,
+                            "flat_field_electrons": ff_electrons,   # Rename this parameter to flat_field_uncertainty
                             "flat_field_noise_on": True
                         })
-                        print(f"{det}: flat_field_electrons -> {ff_electrons:.2f}")
+                        print(f"{det}: flat_field_electrons -> {ff_electrons}")
         except Exception as e:
             print(f"Failed to process flat field {filepath}: {e}")
 
     # -------------------------------
     # SATURATION: update saturation_fullwell
+    # As of 05/29/2026, set the fullwell depth to a typical value (100,000 electrons)
+    # This part of the script will be re-visited in the future(after commissioning) to re-evaluate the value
     # -------------------------------
     for filepath in saturation_filepaths:
         try:
             with rdm.open(filepath) as ref:
                 det = ref.meta.instrument.detector
-                val = float(np.amax(ref.data))
+                # val = float(np.amax(ref.data)) * gain_vals[det]
+                val = 100000       # Hard-coding to a typical value as of 05/29/2026
             if det in detectors_form:
                 detectors_form[det].update({
                     "saturation_fullwell": val,
                     "saturation_on": True
                 })
-                print(f"{det}: saturation_fullwell -> {val:.1f}")
+                print(f"{det}: saturation_fullwell -> {val}")
         except Exception as e:
             print(f"Failed to process saturation {filepath}: {e}")
+
 
     # -------------------------------
     # Write updated config
@@ -272,3 +320,53 @@ def update_etc_form_from_crds(output_dir):
         yaml.safe_dump(form, f, sort_keys=False)
 
     print(f"Updated ETC form file saved to: {ETC_FORM}")
+
+
+# -------------------------------
+# Optional: for RTB internal use only
+# Extra function to add the following comments only to WFI01 to have information of what the detector keys are for
+# This information is internal to RTB and does not appear in the converted ASDF file
+# -------------------------------
+def add_eol_comments_for_wfi01(yaml_file, comment_map):
+    """
+    Update ETC YAML form once more to add useful information on what each parameter is in the ETC
+    This function is useful for the RTB internal usage. 
+    """
+    """
+
+    Parameters
+    ----------
+    yaml_file : str
+        Path to the directory where the yaml file leaves.
+    comment_map: dict
+        A dictionary containing the key and the comments 
+    """
+    with open(yaml_file, 'r') as f:
+        lines = f.readlines()
+
+    modified_lines = []
+
+    # A counter is needed to only add comments to the WFI01 contents
+    count = 0
+    
+    for line in lines:
+        count += 1
+
+        # WFI01's parameters are from lines 23-31
+        if (count >= 22) and (count <= 31):
+            # Check if the line contains a key we want to comment
+            for key, comment in comment_map.items():
+                # Matches keys followed by a colon
+                if (key+':') in line:
+                    # Strip trailing newlines, spaces, append comment, and add newline back
+                    stripped = line.rstrip('\r\n')
+                    line = f"{stripped}  # {comment}\n"                    
+        else:
+            # Do not touch anything out of WFI01's content
+            line = line
+        modified_lines.append(line)
+
+    with open(yaml_file, 'w') as f:
+        f.writelines(modified_lines)
+
+
