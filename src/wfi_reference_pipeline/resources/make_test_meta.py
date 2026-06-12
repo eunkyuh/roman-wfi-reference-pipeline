@@ -47,7 +47,7 @@ from wfi_reference_pipeline.resources.wfi_meta_integral_non_linearity import (
 from wfi_reference_pipeline.resources.wfi_meta_inter_pixel_capacitance import (
     WFIMetaInterPixelCapacitance,
 )
-from wfi_reference_pipeline.resources.wfi_meta_inverselinearity import (
+from wfi_reference_pipeline.resources.wfi_meta_inverse_linearity import (
     WFIMetaInverseLinearity,
 )
 from wfi_reference_pipeline.resources.wfi_meta_linearity import WFIMetaLinearity
@@ -150,7 +150,7 @@ class MakeTestMeta:
         ipc_meta_data = [ref_optical_element]
         self.meta_ipc = WFIMetaInterPixelCapacitance(*meta_data, *ipc_meta_data)
 
-    def _create_test_meta_inverselinearity(self, meta_data):
+    def _create_test_meta_inverse_linearity(self, meta_data):
         input_units = u.DN
         output_units = u.DN
 
@@ -265,7 +265,7 @@ class MakeTestMeta:
             self._create_test_meta_integral_non_linearity(meta_data_params)
 
         if ref_type == REF_TYPE_INVERSELINEARITY:
-            self._create_test_meta_inverselinearity(meta_data_params)
+            self._create_test_meta_inverse_linearity(meta_data_params)
 
         if ref_type == REF_TYPE_INTERPIXELCAPACITANCE:
             self._create_test_meta_inter_pixel_capacitance(meta_data_params)

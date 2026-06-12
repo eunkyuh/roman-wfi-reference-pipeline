@@ -253,7 +253,7 @@ class Dark(ReferenceType):
         Create data model from DMS and populate tree.
         """
 
-        # Construct the dark object from the data model.
+        # Construct the object from the data model.
         dark_datamodel_tree = DarkRefModel()
         dark_datamodel_tree["meta"] = self.meta_data.export_asdf_meta()
         dark_datamodel_tree["dark_slope"] = self.dark_rate_image.astype(np.float32)

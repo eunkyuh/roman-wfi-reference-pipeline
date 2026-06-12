@@ -150,8 +150,6 @@ class Saturation(ReferenceType):
         """
         Create data model from DMS and populate tree.
         """
-
-        # Construct the saturation object from the data model.
         saturation_datamodel_tree = SaturationRefModel()
         saturation_datamodel_tree["meta"] = self.meta_data.export_asdf_meta()
         saturation_datamodel_tree["data"] = self.saturation_image

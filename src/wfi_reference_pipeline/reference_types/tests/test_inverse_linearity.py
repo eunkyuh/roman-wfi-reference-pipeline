@@ -4,23 +4,25 @@ import pytest
 from wfi_reference_pipeline.constants import (
     DETECTOR_PIXEL_X_COUNT,
     DETECTOR_PIXEL_Y_COUNT,
-    REF_TYPE_LINEARITY,
+    REF_TYPE_INVERSELINEARITY,
     REF_TYPE_READNOISE,
 )
-from wfi_reference_pipeline.reference_types.linearity.linearity import Linearity
+from wfi_reference_pipeline.reference_types.inverse_linearity.inverse_linearity import (
+    InverseLinearity,
+)
 from wfi_reference_pipeline.resources.make_test_meta import MakeTestMeta
 
 
 @pytest.fixture
 def valid_meta_data():
-    """Fixture for generating valid WFIMetaLinearity metadata."""
-    test_meta = MakeTestMeta(ref_type=REF_TYPE_LINEARITY)
-    return test_meta.meta_linearity
+    """Fixture for generating valid WFIMetaInverseLinearity metadata."""
+    test_meta = MakeTestMeta(ref_type=REF_TYPE_INVERSELINEARITY)
+    return test_meta.meta_inverselinearity
 
 
 @pytest.fixture
 def valid_ref_type_data_array():
-    """Fixture for generating valid linearity coefficient data."""
+    """Fixture for generating valid inverse linearity coefficient data."""
     return np.random.random(
         (
             5,
@@ -31,31 +33,35 @@ def valid_ref_type_data_array():
 
 
 @pytest.fixture
-def linearity_object_with_data_array(
+def inverse_linearity_object_with_data_array(
     valid_meta_data,
     valid_ref_type_data_array,
 ):
-    """Fixture for initializing a Linearity object with valid data."""
-    linearity_object = Linearity(
+    """Fixture for initializing an InverseLinearity object with valid data."""
+    inverse_linearity_object = InverseLinearity(
         meta_data=valid_meta_data,
         ref_type_data=valid_ref_type_data_array,
     )
-    yield linearity_object
+    yield inverse_linearity_object
 
 
-class TestLinearity:
+class TestInverseLinearity:
 
-    def test_linearity_instantiation_with_valid_ref_type_data(
+    def test_inverse_linearity_instantiation_with_valid_ref_type_data(
         self,
-        linearity_object_with_data_array,
+        inverse_linearity_object_with_data_array,
     ):
         """
-        Test that Linearity object is created successfully with valid input data.
+        Test that InverseLinearity object is created successfully
+        with valid input data.
         """
-        assert isinstance(linearity_object_with_data_array, Linearity)
+        assert isinstance(
+            inverse_linearity_object_with_data_array,
+            InverseLinearity,
+        )
 
         assert (
-            linearity_object_with_data_array.lin_coeffs_array.shape
+            inverse_linearity_object_with_data_array.inverse_lin_coeffs_array.shape
             == (
                 5,
                 DETECTOR_PIXEL_X_COUNT,
@@ -63,40 +69,41 @@ class TestLinearity:
             )
         )
 
-    def test_linearity_instantiation_with_invalid_metadata(
+    def test_inverse_linearity_instantiation_with_invalid_metadata(
         self,
         valid_ref_type_data_array,
     ):
         """
-        Test that Linearity raises TypeError with invalid metadata type.
+        Test that InverseLinearity raises TypeError with invalid metadata type.
         """
         bad_test_meta = MakeTestMeta(ref_type=REF_TYPE_READNOISE)
 
         with pytest.raises(TypeError):
-            Linearity(
+            InverseLinearity(
                 meta_data=bad_test_meta.meta_readnoise,
                 ref_type_data=valid_ref_type_data_array,
             )
 
-    def test_linearity_instantiation_with_invalid_ref_type_data(
+    def test_inverse_linearity_instantiation_with_invalid_ref_type_data(
         self,
         valid_meta_data,
     ):
         """
-        Test that Linearity raises TypeError with invalid reference type data.
+        Test that InverseLinearity raises TypeError with invalid
+        reference type data.
         """
         with pytest.raises(TypeError):
-            Linearity(
+            InverseLinearity(
                 meta_data=valid_meta_data,
                 ref_type_data="invalid_ref_data",
             )
 
-    def test_linearity_instantiation_with_invalid_dimensions(
+    def test_inverse_linearity_instantiation_with_invalid_dimensions(
         self,
         valid_meta_data,
     ):
         """
-        Test that Linearity raises ValueError when input data
+        Test that InverseLinearity raises ValueError when input data
         is not a 3D numpy array.
         """
         invalid_array = np.random.random(
@@ -107,21 +114,21 @@ class TestLinearity:
         )
 
         with pytest.raises(ValueError):
-            Linearity(
+            InverseLinearity(
                 meta_data=valid_meta_data,
                 ref_type_data=invalid_array,
             )
 
     def test_populate_datamodel_tree(
         self,
-        linearity_object_with_data_array,
+        inverse_linearity_object_with_data_array,
     ):
         """
         Test that the data model tree is correctly populated
-        in the Linearity object.
+        in the InverseLinearity object.
         """
         data_model_tree = (
-            linearity_object_with_data_array.populate_datamodel_tree()
+            inverse_linearity_object_with_data_array.populate_datamodel_tree()
         )
 
         assert "meta" in data_model_tree
@@ -136,14 +143,14 @@ class TestLinearity:
 
         assert data_model_tree["coeffs"].dtype == np.float32
 
-    def test_linearity_outfile_default(
+    def test_inverse_linearity_outfile_default(
         self,
-        linearity_object_with_data_array,
+        inverse_linearity_object_with_data_array,
     ):
         """
         Test that the default outfile name is correct.
         """
         assert (
-            linearity_object_with_data_array.outfile
-            == "roman_linearity.asdf"
+            inverse_linearity_object_with_data_array.outfile
+            == "roman_inverse_linearity.asdf"
         )

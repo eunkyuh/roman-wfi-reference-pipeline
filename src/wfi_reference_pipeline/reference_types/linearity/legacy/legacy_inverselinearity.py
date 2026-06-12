@@ -5,7 +5,7 @@ from astropy import units as u
 from astropy.io import fits
 from roman_datamodels.datamodels import InverselinearityRefModel
 
-from wfi_reference_pipeline.resources.wfi_meta_inverselinearity import (
+from src.wfi_reference_pipeline.resources.wfi_meta_inverse_linearity import (
     WFIMetaInverseLinearity,
 )
 
