@@ -113,8 +113,6 @@ class Linearity(ReferenceType):
         """
         Create data model from DMS and populate tree.
         """
-
-        # Construct the object from the data model.
         linearity_datamodel_tree = LinearityRefModel()
         linearity_datamodel_tree['meta'] = self.meta_data.export_asdf_meta()
         linearity_datamodel_tree['coeffs'] = self.lin_coeffs_array.astype(np.float32)

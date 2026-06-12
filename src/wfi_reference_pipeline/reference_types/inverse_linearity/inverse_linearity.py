@@ -132,10 +132,10 @@ class InverseLinearity(ReferenceType):
         """
         Create data model from DMS and populate tree.
         """
-
         inverse_linearity_datamodel_tree = InverselinearityRefModel()
         inverse_linearity_datamodel_tree["meta"] = self.meta_data.export_asdf_meta()
         inverse_linearity_datamodel_tree["coeffs"] = self.inverse_lin_coeffs_array.astype(np.float32)
         inverse_linearity_datamodel_tree["dq"] = self.dq_mask
 
         return inverse_linearity_datamodel_tree
+    
