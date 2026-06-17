@@ -1,12 +1,8 @@
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Pool
 
-import asdf
 import numpy as np
 import pandas as pd
-import roman_datamodels as rdm
 from astropy.convolution import Box2DKernel, convolve
 from astropy.io import fits
 from roman_datamodels.datamodels import MaskRefModel
@@ -18,7 +14,6 @@ from wfi_reference_pipeline.constants import (
     DETECTOR_PIXEL_X_COUNT,
     DETECTOR_PIXEL_Y_COUNT,
 )
-from wfi_reference_pipeline.pipelines.dark_pipeline import DarkPipeline
 from wfi_reference_pipeline.reference_types.reference_type import ReferenceType
 from wfi_reference_pipeline.resources.wfi_meta_mask import WFIMetaMask
 
@@ -52,6 +47,8 @@ class Mask(ReferenceType):
         meta_data,
         file_list=None,
         ref_type_data=None,
+        superdark=None,
+        super_rate_image=None,
         bit_mask=None,
         outfile="roman_mask.asdf",
         clobber=False,
@@ -70,6 +67,12 @@ class Mask(ReferenceType):
 
         ref_type_data: numpy array; default = None
             Input data cube. Intended as input for Mask not generated from a file list.
+
+        superdark: np.ndarray; default = None
+            The superdark that will be used to calculate the CDS noise and dark rate images / ramps.
+
+        super_rate_image: np.ndarray; default = None
+            This is a data product generated using flat-field exposures. It is a Super Flat that has been slope-fitted.
 
         bit_mask: 2D integer numpy array, default = None
             A 2D data quality integer mask array to be applied to reference file.
@@ -97,8 +100,8 @@ class Mask(ReferenceType):
 
         # Initialize attributes
         self.mask_image = None
-        self.flat_filelist = None
-        self.dark_filelist = None
+        self.super_rate_image = super_rate_image
+        self.superdark = superdark
 
         # Default meta creation for module specific ref type.
         if not isinstance(meta_data, WFIMetaMask):
@@ -109,22 +112,7 @@ class Mask(ReferenceType):
         if len(self.meta_data.description) == 0:
             self.meta_data.description = "Roman WFI mask reference file."
 
-        logging.debug(f"Default mask reference file object: {outfile}.")
-
-        # If user supplied files, then sort self.file_list into self.flat_filelist and self.dark_filelist
-        if self.file_list:
-
-            self.flat_filelist = []
-            self.dark_filelist = []
-
-            self._sort_filelist()
-
-            # If no valid dark OR flat files were supplied, cannot continue
-            if not self.flat_filelist and not self.dark_filelist:
-                raise RuntimeError("No files in self.file_list were able to be sorted into self.flat_filelist and self.dark_filelist... cannot proceed.")
-
-            logging.info("The following files were classified as prepped flats: ", self.flat_filelist)
-            logging.info("The following files were classified as prepped darks: ", self.dark_filelist)
+        logging.info(f"Default mask reference file object: {outfile}.")
 
         # Checking for valid input types
         if ref_type_data is not None:
@@ -137,65 +125,34 @@ class Mask(ReferenceType):
             if not ref_type_data.shape == (DETECTOR_PIXEL_X_COUNT, DETECTOR_PIXEL_Y_COUNT):
                 raise ValueError(f"Mask ref_type_data must have shape ({DETECTOR_PIXEL_X_COUNT}, {DETECTOR_PIXEL_Y_COUNT}). Current shape is: {ref_type_data.shape}")
 
-        if ref_type_data is None and not self.file_list:
-            raise ValueError("Mask requires user to supply either ref_type_data OR file_list.")
+        if ref_type_data is None and self.super_rate_image is None and self.superdark is None:
+            raise ValueError("Mask requires user to supply either ref_type_data, superdark, or super rate image.")
 
         else:
-            logging.debug("The input 2D data array is now self.mask_image.")
+            logging.info("The input 2D data array is now self.mask_image.")
             self.mask_image = ref_type_data
-            logging.debug("Ready to generate reference file.")
+            logging.info("Ready to generate reference file.")
 
-    def _sort_filelist(self):
-        """
-        Iterate through self.file_list and split the files into darks and flats.
-        Sets the dark and flat filelists as attributes to the Mask object.
-        If there is at least 1 file that can't be sorted, raise an error and print the
-        complete list of files that cannot be sorted. 
-        """
-        logging.info("Sorting the files into flats vs darks in self.file_list")
-
-        invalid_files = []
-
-        for file in self.file_list:
-            filename = os.path.basename(file).lower()
-
-            if "prepped" in filename and "flat" in filename:
-                self.flat_filelist.append(file)
-
-            elif "prepped" in filename and "dark" in filename:
-                self.dark_filelist.append(file)
-
-            else:
-                invalid_files.append(file)
-
-        if invalid_files:
-            raise ValueError("The following files can not be sorted in prepped flats or darks:", invalid_files)
 
     def make_mask_image(self,
                         boxwidth=4,
                         dead_sigma=5.,
                         max_low_qe_signal=0.5,
                         min_open_adj_signal=1.05,
-                        do_not_use_flags=["DEAD"],
-                        multip=False,
-                        intermediate_path=None,
+                        do_not_use_flags=["DEAD", "TELEGRAPH", "OTHER_BAD_PIXEL", "RESERVED_7"],
                         from_smoothed=False,
-                        superdark_path=None,
                         sigma_thresh_jump=5.0,
                         min_jumps_for_rc_telegraph=1,
                         noise_sigma=None,
                         rc_thresh_ratio_tiebreaker=0.1,
                         tg_thresh_ratio_tiebreaker=1.5,
-                        save_metrics=True,
-                        min_per_level=10,
-                        jump_path=""):
+                        min_per_level=10):
         """
         This method contains the full mask-generation workflow:
             1. Identify flat-field based defects (DEAD, LOW_QE, OPEN/ADJ).
-            2. Construct a superdark from dark integrations.
-            3. Detect statistically significant jumps in each pixel ramp.
-            4. Classify jumpy pixels as RC or TELEGRAPH using model-based diagnostics.
-            5. Apply reference pixel and DO_NOT_USE flags.
+            2. Detect statistically significant jumps in each pixel ramp.
+            3. Classify jumpy pixels as RC or TELEGRAPH using model-based diagnostics.
+            4. Apply reference pixel and DO_NOT_USE flags.
 
         See docstring for each step for more information on the flag algorithms.
 
@@ -225,26 +182,12 @@ class Mask(ReferenceType):
         do_not_use_flags : list of str, optional
             List of DQ flag names whose pixels should also be marked as
             DO_NOT_USE. This prevents downstream romancal steps from using
-            known bad pixels. Default is ["DEAD"].
-
-        multip : bool, optional
-            If True, use multiprocessing when computing slope-based products
-            (e.g., super slope images from flats). Default is False.
-
-        intermediate_path : str or None, optional
-            Directory in which intermediate products (e.g., normalized images,
-            jump-count maps, RC/telegraph metrics CSVs) will be written.
-            If None, an intermediate products folder is created and products
-            are saved in that.
+            known bad pixels. Default is ["DEAD", "TELEGRAPH", "OTHER_BAD_PIXEL", "RESERVED_7" (RC/IRC)].
 
         from_smoothed : bool, optional
             If True, generate normalized flat-field images using local
             (smoothed) normalization. If False, use global mean normalization.
             Default is False.
-
-        superdark_path : str or None, optional
-            Path to a user-supplied superdark cube. If None, a superdark is
-            generated internally from self.file_list. Default is None.
 
         sigma_thresh_jump : float, optional
             Threshold (in robust sigma units) used by the MAD-based jump
@@ -272,193 +215,117 @@ class Mask(ReferenceType):
             resolve ties in the voting classifier in favor of TELEGRAPH
             behavior. Default is 1.5.
 
-        save_metrics : bool, optional
-            If True, save per-pixel RC/TELEGRAPH diagnostic metrics to a CSV
-            file in intermediate_path. Default is True.
-
         min_per_level : int, optional
             Minimum number of samples required in each level when estimating
             the low and high states of the two-level telegraph model. This
             prevents single outliers or smooth RC ramps from producing
             artificially large level separations. Default is 10.
-
-        jump_path : str, optional
-            This is the path to the jump_products file (if already created).
-            It contains the jump_counts image and the jump mask.
-            If a jump_products.fits file has already been created, this
-            file is used when identifying RC and TELEGRAPH pixels in update_mask_from_darks().
         """
-        # Running update_mask_from_flats on flat_filelist if not None
-        if self.flat_filelist:
-            logging.debug(f"Running update_mask_from_flats() on {self.flat_filelist}")
-            self.update_mask_from_flats(filelist=self.flat_filelist,
-                                        multip=multip,
-                                        from_smoothed=from_smoothed,
+        if self.super_rate_image is not None:
+            logging.info("Running update_mask_from_flats()")
+            self.update_mask_from_flats(from_smoothed=from_smoothed,
                                         boxwidth=boxwidth,
-                                        intermediate_path=intermediate_path,
                                         dead_sigma=dead_sigma,
                                         max_low_qe_signal=max_low_qe_signal,
                                         min_open_adj_signal=min_open_adj_signal)
-        if self.dark_filelist:
-            logging.debug(f"Running update_mask_from_darks() on {self.dark_filelist}")
-            self.update_mask_from_darks(filelist=self.dark_filelist,
-                                        intermediate_path=intermediate_path,
-                                        superdark_path=superdark_path,
-                                        sigma_thresh_jump=sigma_thresh_jump,
+        if self.superdark is not None:
+            logging.info("Running update_mask_from_darks()")
+            self.update_mask_from_darks(sigma_thresh_jump=sigma_thresh_jump,
                                         min_jumps_for_rc_telegraph=min_jumps_for_rc_telegraph,
                                         noise_sigma=noise_sigma,
                                         rc_thresh_ratio_tiebreaker=rc_thresh_ratio_tiebreaker,
                                         tg_thresh_ratio_tiebreaker=tg_thresh_ratio_tiebreaker,
-                                        save_metrics=save_metrics,
-                                        min_per_level=min_per_level,
-                                        jump_path=jump_path)
+                                        min_per_level=min_per_level)
 
         # These functions can be implemented without input files
-        logging.debug("Setting REFERENCE pixels")
+        logging.info("Setting REFERENCE pixels")
         self.update_mask_ref_pixels()
 
-        logging.debug("Setting DO_NOT_USE pixels")
+        logging.info("Setting DO_NOT_USE pixels")
         self.set_do_not_use_pixels(do_not_use_flags=do_not_use_flags)
 
         # Updating the Mask object with calculated mask
         self.mask_image = self.dq_mask
 
-    def update_mask_from_flats(self, filelist, multip, from_smoothed, boxwidth, intermediate_path, dead_sigma, max_low_qe_signal, min_open_adj_signal):
+
+    def update_mask_from_flats(self, from_smoothed, boxwidth, dead_sigma, max_low_qe_signal, min_open_adj_signal):
         """
-        This function is used when ID'ing bad pixels from FLAT files.
-        The following bad pixels classes are idenfitied:
+        This function is used when ID'ing bad pixels from a super_rate_image.
+        The following bad pixels classes are identified:
             - DEAD: set_dead_pixels()
             - LOW_QE: set_low_qe_pixels()
             - OPEN and ADJ: set_open_adj_pixels()
 
-        The filelist is a list of flat files; since flat images are evenly
-        illuminated pixels across the entire detector, they are ideal for
+        The super_rate_image is generated in the MaskPipeline class from flat files.
+        Since flat images are evenly illuminated pixels across the entire detector, they are ideal for
         identifying low sensitivity pixels (such as DEAD).
         """
-        logging.debug("Creating normalized image with ", filelist)
-        normalized_image = self.create_normalized_image(filelist,
-                                                        multip,
-                                                        from_smoothed,
-                                                        boxwidth)
+        logging.info("Creating normalized image with super_rate_image")
+        self.normalized_super_rate = self.create_normalized_image(from_smoothed,
+                                                                  boxwidth)
 
-        if intermediate_path is not None:
-            logging.debug("Writing normalized image to ", intermediate_path)
-            fits.writeto(os.path.join(intermediate_path, "normalized_image.fits"),
-                         data=normalized_image,
-                         overwrite=True)
+        logging.info("Identifying DEAD pixels")
+        self.set_dead_pixels(dead_sigma)
 
-        logging.debug("Identifying DEAD pixels")
-        self.set_dead_pixels(normalized_image,
-                             dead_sigma)
-
-        logging.debug("Identifying LOW_QE and OPEN/ADJ pixels")
-        self.set_low_qe_open_adj_pixels(normalized_image,
-                                        max_low_qe_signal,
+        logging.info("Identifying LOW_QE and OPEN/ADJ pixels")
+        self.set_low_qe_open_adj_pixels(max_low_qe_signal,
                                         min_open_adj_signal)
 
-        return
+        logging.info("All DEAD, OPEN/ADJ, LOW_QE pixels identified!")
 
-    class MaskDataCube:
+
+    def create_normalized_image(self, from_smoothed, boxwidth):
         """
-        Lightweight polynomial fitter for ramp cubes. From Bernie R. and Sarah Betti.
+        Use the super_rate_image to create a normalized super rate image.
+        If `from_smoothed` is True, then the super_rate_image will be 
+        smoothed with a 2D box kernel before being normalized.
+
+        Parameters
+        ----------
+        from_smoothed : bool
+            If True, then smooth the super_rate_image before normalizing.
+        boxwidth : int
+            Used as the 2D box kernel width if `from_smoothed` is True.
+
+        Returns
+        -------
+        Returns the normalized super_rate_image.
         """
-        def __init__(self, nz: int, degree: int = 1):
-            self.nz = nz
-            self.degree = degree
-            self.z = np.arange(nz)
-
-            # Precompute basis matrix and its pseudo-inverse
-            self.B = np.vander(self.z, N=degree + 1, increasing=True)
-            self.pinvB = np.linalg.pinv(self.B)
-            self.B_x_pinvB = self.B @ self.pinvB
-
-        def fit(self, data):
-            """
-            Fits the polynomial to the data.
-            Returns the coefficients of the fit.
-            """
-            return (self.pinvB @ data.reshape(self.nz, -1)).reshape((-1, *data.shape[1:]))
-
-        def model(self, data):
-            """
-            Models the data based on the polynomial fit.
-            Returns the modeled data.
-            """
-            return (self.B_x_pinvB @ data.reshape(self.nz, -1)).reshape((-1, *data.shape[1:]))
-
-    def _get_slope(self, file):
-        """
-        Extracts the slope (linear term) of the data using polynomial fitting.
-        """
-        with rdm.open(file) as rf:
-
-            data = rf.data
-
-            datacube = Mask.MaskDataCube(data.shape[0], degree=1)
-
-            # Extract the linear coefficient
-            slope = datacube.fit(data)[1]
-
-        return slope
-
-    def _create_super_slope_image(self, filelist, multip):
-        """
-        Fit a slope to each file in filelist, then average
-        all slopes together to create a super slope image.
-        """
-        # Speed up slope calculation with Pool's map function
-        if multip:
-            nprocesses = max(os.cpu_count() - 2, 1)
-
-            with Pool(processes=nprocesses) as pool:
-                slopes = pool.map(self._get_slope, filelist)
-
-        else:
-            slopes = [self._get_slope(file) for file in filelist]
-
-        super_slope_image = np.nanmean(slopes,
-                                       axis=0)
-
-        return super_slope_image
-
-    def create_normalized_image(self, filelist, multip, from_smoothed, boxwidth):
-
-        super_slope = self._create_super_slope_image(filelist,
-                                                     multip)
-
         if from_smoothed:
 
             smoothing_kernel = Box2DKernel(boxwidth)
-            smoothed_image = convolve(super_slope,
+            smoothed_image = convolve(self.super_rate_image,
                                       smoothing_kernel,
                                       boundary="fill",
-                                      fill_value=np.nanmedian(super_slope),
+                                      fill_value=np.nanmedian(self.super_rate_image),
                                       nan_treatment="interpolate")
 
-            return super_slope / smoothed_image
+            denominator = smoothed_image
 
         else:
-            return super_slope / np.nanmean(super_slope)
+            denominator = np.nanmean(self.super_rate_image)
 
-    def set_dead_pixels(self, normalized_image, dead_sigma):
+        return self.super_rate_image / denominator
+
+
+    def set_dead_pixels(self, dead_sigma):
         """
-        Identify the DEAD pixels using the normalized image.
+        Identify the DEAD pixels using the normalized super rate image.
         A pixel is considered DEAD if it is 5 sigma below the mean
         of the normalized image.
         """
-        norm_mean = np.nanmean(normalized_image)
-        norm_std = np.nanstd(normalized_image)
+        norm_mean = np.nanmean(self.normalized_super_rate)
+        norm_std = np.nanstd(self.normalized_super_rate)
 
         threshold = norm_mean - (dead_sigma * norm_std)
 
-        logging.debug(f"Pixels with normalized countrate value < {threshold} are marked as DEAD")
+        logging.info(f"Pixels with normalized countrate value < {threshold} are marked as DEAD")
 
-        dead_mask = (normalized_image < threshold).astype(np.uint32)
+        dead_mask = (self.normalized_super_rate < threshold).astype(np.uint32)
         dead_mask[dead_mask == 1] = dqflags.DEAD.value
 
         self.dq_mask += dead_mask
 
-        return
 
     def _get_adjacent_pix(self, x_coor, y_coor, im):
         """
@@ -523,11 +390,12 @@ class Mask(ReferenceType):
 
         return adj_y, adj_x
 
-    def set_low_qe_open_adj_pixels(self, normalized_image, max_low_qe_signal, min_open_adj_signal):
+
+    def set_low_qe_open_adj_pixels(self, max_low_qe_signal, min_open_adj_signal):
         """
-        Identify LOW_QE, OPEN and ADJ pixels using the normalized image.
+        Identify LOW_QE, OPEN and ADJ pixels using the normalized super rate image.
         First, a list of coordinates of low signal pixels (defined as having a normalized
-        value less than max_low_qe_signal) is created. The code then iterates through
+        rate value less than max_low_qe_signal) is created. The code then iterates through
         each of these low signal pixels, getting the four adject pixels and seeing
         if ALL of these four pixels are >1.05 norm im. If so, then this is a OPEN/ADJ
         pixel. Otherwise, then just the center is marked as LOW_QE.
@@ -536,9 +404,9 @@ class Mask(ReferenceType):
         open_map = np.zeros((DETECTOR_PIXEL_X_COUNT, DETECTOR_PIXEL_Y_COUNT), dtype=np.uint32)
         adj_map = np.zeros((DETECTOR_PIXEL_X_COUNT, DETECTOR_PIXEL_Y_COUNT), dtype=np.uint32)
 
-        low_sig_y, low_sig_x = np.where(normalized_image < max_low_qe_signal)
+        low_sig_y, low_sig_x = np.where(self.normalized_super_rate < max_low_qe_signal)
 
-        logging.debug("Looping through low signal pixels to identify OPEN/ADJ/LOW_QE pixels")
+        logging.info("Looping through low signal pixels to identify OPEN/ADJ/LOW_QE pixels")
         for x, y in zip(low_sig_x, low_sig_y):
 
             # Skip calculations if this is a DEAD pixel
@@ -548,10 +416,10 @@ class Mask(ReferenceType):
             adj_coor = self._get_adjacent_pix(
                 x_coor=x,
                 y_coor=y,
-                im=normalized_image
+                im=self.normalized_super_rate
             )
 
-            adj_pix = normalized_image[adj_coor]
+            adj_pix = self.normalized_super_rate[adj_coor]
             all_adj = (adj_pix > min_open_adj_signal)
 
             # TODO: update with OPEN/ADJ flags when determined
@@ -567,7 +435,6 @@ class Mask(ReferenceType):
         self.dq_mask += open_map.astype(np.uint32)
         self.dq_mask += adj_map.astype(np.uint32)
 
-        return
 
     def set_do_not_use_pixels(self, do_not_use_flags):
         """
@@ -582,7 +449,7 @@ class Mask(ReferenceType):
         # Going through each DNU flag
         for flag in do_not_use_flags:
 
-            logging.debug(f"Setting {flag} pixels as DO_NOT_USE")
+            logging.info(f"Setting {flag} pixels as DO_NOT_USE")
 
             # Bitval for the current flag
             bitval = dqflags[flag].value
@@ -598,7 +465,8 @@ class Mask(ReferenceType):
 
         return
 
-    def update_mask_from_darks(self, filelist, intermediate_path, jump_path, superdark_path, sigma_thresh_jump, min_jumps_for_rc_telegraph, noise_sigma, rc_thresh_ratio_tiebreaker, tg_thresh_ratio_tiebreaker, save_metrics, min_per_level):
+
+    def update_mask_from_darks(self, sigma_thresh_jump, min_jumps_for_rc_telegraph, noise_sigma, rc_thresh_ratio_tiebreaker, tg_thresh_ratio_tiebreaker, min_per_level):
         """
         This function is used when identifying bad pixels from long dark files (350 reads).
         The following bad pixel classes are identified:
@@ -615,44 +483,18 @@ class Mask(ReferenceType):
         MAD-based jump detector; only pixels with detected jumps
         are subjected to RC/telegraph classification.
         """
-        # TODO: currently, specifying a folder to save intermediate products is optional
-        # but for the current implentation of the superdark code I believe you can only 
-        # access the superdark by opening the generated outfile. 
-        # If an intermediate_path is None, I will create a manual one in the CWD.
-        # This can probably be solved by having the superdark be an attribute to the obj
-        # (tho maybe it already is able to be?)
-        # There could be a boolean val for saving intermed_prod and if False just delete at end
-        if not intermediate_path or not os.path.exists(intermediate_path):
-            logging.debug("Creating an intermediate_path directory")
-            intermediate_path = os.path.join(os.getcwd(), "intermed_prod")
-            os.makedirs(intermediate_path, exist_ok=True)
+        logging.info("Computing MAD-based jump counts for all pixels")
+        self.mad_based_jump_counter_cube(sigma_thresh_jump=sigma_thresh_jump)
 
-        logging.debug("Creating the superdark")
-        superdark = self.create_superdark(filelist,
-                                          intermediate_path,
-                                          superdark_path)
-
-        logging.debug("Computing MAD-based jump counts for all pixels")
-        jump_count_img, jump_mask_cube = self.mad_based_jump_counter_cube(superdark,
-                                                                          sigma_thresh_jump=sigma_thresh_jump,
-                                                                          jump_path=jump_path,
-                                                                          intermediate_path=intermediate_path)
-
-        logging.debug("Identifying TELEGRAPH and RC pixels")
-        self.set_rc_tel_pixels(superdark=superdark,
-                               jump_count_img=jump_count_img,
-                               jump_mask_cube=jump_mask_cube,
-                               min_jumps_for_rc_telegraph=min_jumps_for_rc_telegraph, 
+        logging.info("Identifying TELEGRAPH and RC pixels")
+        self.set_rc_tel_pixels(min_jumps_for_rc_telegraph=min_jumps_for_rc_telegraph, 
                                noise_sigma=noise_sigma,
                                rc_thresh_ratio_tiebreaker=rc_thresh_ratio_tiebreaker,
                                tg_thresh_ratio_tiebreaker=tg_thresh_ratio_tiebreaker,
-                               save_metrics=save_metrics,
-                               intermediate_path=intermediate_path,
                                min_per_level=min_per_level)
 
-        return
 
-    def set_rc_tel_pixels(self, superdark, jump_count_img, jump_mask_cube, min_jumps_for_rc_telegraph, noise_sigma, rc_thresh_ratio_tiebreaker, tg_thresh_ratio_tiebreaker, save_metrics, intermediate_path, min_per_level):
+    def set_rc_tel_pixels(self, min_jumps_for_rc_telegraph, noise_sigma, rc_thresh_ratio_tiebreaker, tg_thresh_ratio_tiebreaker, min_per_level):
         """
         Classify pixels exhibiting jump behavior as RC (double exponential behavior)
         or telegraph (multi-level switching) using per-pixel ramp diagnostics.
@@ -732,8 +574,8 @@ class Mask(ReferenceType):
         telegraph_mask = np.zeros((DETECTOR_PIXEL_X_COUNT, DETECTOR_PIXEL_Y_COUNT), dtype=np.uint32)
         other_bad_mask = np.zeros((DETECTOR_PIXEL_X_COUNT, DETECTOR_PIXEL_Y_COUNT), dtype=np.uint32)
 
-        cand_y, cand_x = np.where(jump_count_img >= min_jumps_for_rc_telegraph)
-        logging.debug(f"Found {cand_x.size} candidates for 'jumpy' pixels with >= {min_jumps_for_rc_telegraph} jumps")
+        cand_y, cand_x = np.where(self.jump_count_img >= min_jumps_for_rc_telegraph)
+        logging.info(f"Found {cand_x.size} candidates for 'jumpy' pixels with >= {min_jumps_for_rc_telegraph} jumps")
 
         # Create coord list to run in parallel
         cand_coords = list(zip(cand_y.tolist(), cand_x.tolist()))
@@ -747,11 +589,11 @@ class Mask(ReferenceType):
             jump stats, and two-level model metrics used to classify pixel as RC or TELEGRAPH.
             """
             y, x = coord
-            nreads = superdark.shape[0]
+            nreads = self.superdark.shape[0]
             t = np.arange(1, nreads + 1) * 3.16247 # seconds
-            ramp = superdark[:, y, x]
+            ramp = self.superdark[:, y, x]
 
-            jump_mask_ramp = jump_mask_cube[:, y, x]
+            jump_mask_ramp = self.jump_mask_cube[:, y, x]
             jump_idx = np.where(jump_mask_ramp)[0] + 1
             jump_count_pix = int(jump_mask_ramp.sum())
 
@@ -768,11 +610,11 @@ class Mask(ReferenceType):
 
             return metrics
 
-        logging.debug("Beginning pixel processing")
+        logging.info("Beginning pixel processing")
         with ThreadPoolExecutor(max_workers=16) as ex:
             rows = list(ex.map(_process_pixel_rc_tel, cand_coords))
 
-        logging.debug("Updating dict rows with bad pixel label")
+        logging.info("Updating dict rows with bad pixel label")
         for row in rows:
             x, y = row["x"], row["y"]
             label = row["label_new"]
@@ -792,16 +634,7 @@ class Mask(ReferenceType):
         self.dq_mask += telegraph_mask
         self.dq_mask += other_bad_mask
 
-        # Saving the metrics to intermediate_path if specified by user
-        if save_metrics:
-            logging.debug("Saving Telegraph + RC metrics to CSV")
-            df = pd.DataFrame(rows)
-            df_filepath = os.path.join(intermediate_path, "tel_rc_metrics.csv")
-
-            df.to_csv(df_filepath)
-            logging.debug(f"Metrics saved to {df_filepath}")
-
-        return
+        self.metrics_df = pd.DataFrame(rows)
 
 
     def classify_rc_vs_tele(self, metrics_row, rc_thresh_ratio_tiebreaker, tg_thresh_ratio_tiebreaker):
@@ -1020,6 +853,7 @@ class Mask(ReferenceType):
             slope_linear=slope_linear,
         )
 
+
     def simple_two_level_model(self, ramp, min_per_level):
         """
         Construct a two-level (telegraph) approximation to a ramp.
@@ -1214,7 +1048,8 @@ class Mask(ReferenceType):
             # Everything failed... return None for fit and len(params)
             return None, None
 
-    def mad_based_jump_counter_cube(self, cube, sigma_thresh_jump, jump_path, intermediate_path, eps=1e-8):
+
+    def mad_based_jump_counter_cube(self, sigma_thresh_jump, eps=1e-8):
         """
         Compute a robust, MAD-based jump mask and per-pixel jump count
         for a full ramp superdark cube.
@@ -1223,18 +1058,16 @@ class Mask(ReferenceType):
         ("jumps") between successive reads of a ramp using the Median Absolute
         Deviation (MAD) as a robust estimator of the underlying noise.
         Jumps may arise from telegraph pixels, or the beginning of an RC pixel's ramp.
-        The output mask is used as an input to telegraph/RC pixel classification.
+
+        Two attributes are set; `jump_mask_cube` is a boolean array of shape (nreads-1, ny, nx)
+        with detected jumps flagged at each time step. `jump_count_img` is an array of shape
+        (ny, nx) with the number of detected jumps per pixel ramp. These attributes are used
+        in `set_rc_tel_pixels` to identify Telegraph / RC+IRC pixels.
 
         Parameters
         ----------
-        cube : ndarray
-            Ramp data cube of shape (nreads, ny, nx).
         sigma_thresh_jump : float
             Threshold in robust sigma units for detecting jumps.
-        jump_path : str
-            Path to an existing jump_products image
-        intermediate_path : str
-            Path to save jump_count and jump_mask image
         eps : float, optional
             Epsilon; the minimum sigma value to prevent division by zero.
 
@@ -1257,151 +1090,18 @@ class Mask(ReferenceType):
         identifying jump behavior in long superdark integrations. Jump detection
         is used only as a screening step; classification is performed using full-ramp diagnostics.
         """
-        if os.path.exists(jump_path):
-            logging.debug(f"Loading pre-created jump file, {jump_path}")
+        logging.info("Creating jump products")
+        diffs = np.diff(self.superdark, axis=0)
+        med = np.median(diffs, axis=0)
+        mad = np.median(np.abs(diffs - med), axis=0)
+        sigma = np.maximum(mad / 0.6745, eps)
 
-            with fits.open(jump_path) as hdul:
-                jump_count = hdul["JUMP_COUNT"].data
-                jump_mask = hdul["JUMP_MASK"].data.astype(bool)
+        # Broadcast med/sigma across reads for per-read residual evaluation
+        resid = np.abs(diffs - med[None, :, :])
+        thr = sigma_thresh_jump * sigma[None, :, :]
+        self.jump_mask_cube = resid > thr
+        self.jump_count_img = np.count_nonzero(self.jump_mask_cube, axis=0).astype(np.int16)
 
-            return jump_count, jump_mask
-
-        else:
-            logging.debug("Creating jump file")
-            diffs = np.diff(cube, axis=0)
-            med = np.median(diffs, axis=0)
-            mad = np.median(np.abs(diffs - med), axis=0)
-            sigma = np.maximum(mad / 0.6745, eps)
-
-            # Broadcast med/sigma across reads for per-read residual evaluation
-            resid = np.abs(diffs - med[None, :, :])
-            thr = sigma_thresh_jump * sigma[None, :, :]
-            jump_mask = resid > thr
-            jump_count = np.count_nonzero(jump_mask, axis=0).astype(np.int16)
-
-            self._save_jump_products(intermediate_path, jump_count, jump_mask)
-
-            return jump_count, jump_mask
-
-
-    def _save_jump_products(self, intermediate_path, jump_count, jump_mask):
-        """
-        Save MAD-based jump detection products to a single FITS file.
-
-        The output FITS file contains:
-            - JUMP_COUNT : 2D image of per-pixel jump counts
-            - JUMP_MASK  : 3D cube flagging jumps per read (1 = jump)
-
-        Parameters
-        ----------
-        intermediate_path : str
-            Directory where the FITS file will be written.
-        jump_count : ndarray
-            (ny, nx) array of jump counts per pixel.
-        jump_mask : ndarray
-            (nreads-1, ny, nx) boolean or integer jump mask.
-        """
-        os.makedirs(intermediate_path, exist_ok=True)
-        outfile = os.path.join(intermediate_path, "jump_products.fits")
-
-        logging.debug(f"Saving jump file to {outfile}")
-
-        hdu_count = fits.ImageHDU(
-            data=jump_count.astype(np.int16),
-            name="JUMP_COUNT",
-        )
-
-        hdu_mask = fits.ImageHDU(
-            data=jump_mask.astype(np.uint8),
-            name="JUMP_MASK",
-        )
-
-        hdul = fits.HDUList([
-            fits.PrimaryHDU(),
-            hdu_count,
-            hdu_mask,
-        ])
-
-        hdul.writeto(outfile, overwrite=True)
-
-    def create_superdark(self, filelist, intermediate_path, superdark_path):
-        """
-        Using pipeline.DarkPipeline() to create a superdark using the list of darks.
-        If a superdark_path is supplied, then load and return the specified superdark.
-        """
-        # Checking if user supplied a superdark
-        if superdark_path is not None:
-            logging.debug(f"User supplied superdark file is: {superdark_path}")
-
-            # Load the supplied superdark
-            if os.path.exists(superdark_path):
-                with asdf.open(superdark_path, memmap=True) as af:
-                    data = af["roman"]["data"]
-                    superdark = data.value if hasattr(data, "value") else data
-                    superdark = np.asarray(superdark)
-
-            else:
-                # File path was given but does not exist
-                logging.debug(f"User-supplied superdark {os.path.basename(superdark_path)} does not exist!")
-                raise FileExistsError
-        else:
-            logging.debug("Attempting to create superdark from filelist...")
-
-            # If no files in filelist
-            if len(filelist) == 0:
-                raise FileNotFoundError(f"Cannot create superdark: filelist is empty and provided path '{superdark_path}' does not exist.")
-
-            # Extracting run info needed before creating superdark
-            detector = self.meta_data.instrument_detector
-            nreads = self._extract_num_reads(filelist)
-
-            dark_pipe = DarkPipeline(detector)
-
-            # TODO: Currently saving in intermediate dir
-            # 1) should the superdark be an attribute? does that help with mem usage?
-            # TODO^ superdark code may need to be modified to all return of superdark
-            # TODO also may need to be updated to toggle on/off sigma-clipping
-            superdark_path = os.path.join(intermediate_path, "superdark.asdf")
-            dark_pipe.prep_superdark_file(full_file_list=filelist,
-                                          outfile=superdark_path,
-                                          full_file_num_reads=nreads,
-                                          do_sigma_clipping=False)
-
-            with asdf.open(superdark_path, memmap=True) as af:
-                data = af["roman"]["data"]
-                superdark = data.value if hasattr(data, "value") else data
-                superdark = np.asarray(superdark)
-
-            logging.debug("Superdark created and loaded")
-
-        return superdark
-
-    def _extract_num_reads(self, filelist):
-        """
-        For the first file in filelist, extract the number of reads (used in superdark creation).
-        """
-        if len(filelist) == 0:
-            logging.debug("No files in long darks filelist!")
-            raise FileNotFoundError
-
-        # TODO: Should I assume all files will have same number of reads?
-        file = filelist[0]
-
-        if not os.path.exists(file):
-            logging.debug("File does not exist!")
-            raise FileExistsError
-
-        with asdf.open(file) as af:
-            data = af["roman"]["data"]
-            data = data.value if hasattr(data, "value") else data
-
-            if len(data.shape) != 3:
-                logging.debug(f"Data array has {len(data.shape)} dimensions, not 3")
-                raise ValueError
-
-            nreads, _, _ = data.shape
-
-        return nreads
 
     def update_mask_ref_pixels(self):
         """
@@ -1418,12 +1118,13 @@ class Mask(ReferenceType):
 
         self.dq_mask += refpix_mask
 
+
     def calculate_error(self):
         """
         Abstract method not applicable to Mask.
         """
-
         pass
+
 
     def update_data_quality_array(self):
         """
@@ -1432,14 +1133,13 @@ class Mask(ReferenceType):
         NOTE - Would be redundant to make_mask_image(). The attribute mask is reserved
         specifically setting the data quality arrays of other reference file types.
         """
-
         pass
+
 
     def populate_datamodel_tree(self):
         """
         Create data model from DMS and populate tree.
         """
-
         # Construct the mask object from the data model.
         mask_datamodel_tree = MaskRefModel()
         mask_datamodel_tree['meta'] = self.meta_data.export_asdf_meta()
