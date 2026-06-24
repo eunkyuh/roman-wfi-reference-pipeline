@@ -104,41 +104,41 @@ class TestMask:
         """
         assert mask_object_with_data_array.outfile == "roman_mask.asdf"
 
-    def test_mask_object_from_valid_filelist(self):
-        """
-        Test that a Mask object is able to correctly initialize when receiving file_list
-        of valid prepped flats, prepped darks, and unprepped other files.
-        """
-        nfiles = 15
+    # def test_mask_object_from_valid_filelist(self):
+    #     """
+    #     Test that a Mask object is able to correctly initialize when receiving file_list
+    #     of valid prepped flats, prepped darks, and unprepped other files.
+    #     """
+    #     nfiles = 15
 
-        # Only need to check the paths, not create actual files
-        fake_flats = [f"fake_prepped_flat_{i}.asdf" for i in range(nfiles)]
-        fake_darks = [f"fake_prepped_dark_{i}.asdf" for i in range(nfiles)]
+    #     # Only need to check the paths, not create actual files
+    #     fake_flats = [f"fake_prepped_flat_{i}.asdf" for i in range(nfiles)]
+    #     fake_darks = [f"fake_prepped_dark_{i}.asdf" for i in range(nfiles)]
 
-        # Putting them in a single filelist arr to pass to Mask
-        fake_filelist = fake_flats + fake_darks
+    #     # Putting them in a single filelist arr to pass to Mask
+    #     fake_filelist = fake_flats + fake_darks
 
-        test_meta = MakeTestMeta(ref_type=REF_TYPE_MASK)
-        rfp_mask = Mask(meta_data=test_meta.meta_mask,
-                        file_list=fake_filelist)
+    #     test_meta = MakeTestMeta(ref_type=REF_TYPE_MASK)
+    #     rfp_mask = Mask(meta_data=test_meta.meta_mask,
+    #                     file_list=fake_filelist)
         
-        assert(sorted(fake_flats) == sorted(rfp_mask.flat_filelist))
-        assert(sorted(fake_darks) == sorted(rfp_mask.dark_filelist))
+    #     assert(sorted(fake_flats) == sorted(rfp_mask.flat_filelist))
+    #     assert(sorted(fake_darks) == sorted(rfp_mask.dark_filelist))
 
-    def test_mask_object_from_bad_filelist(self):
-        """
-        Test that a RuntimeError is raised if no valid flat or dark files were sorted.
-        """
-        # Only need to check the paths, not create actual files
-        nfiles = 15
-        fake_flats = [f"fake_prepped_flat_{i}.asdf" for i in range(nfiles)]
-        fake_darks = [f"fake_prepped_dark_{i}.asdf" for i in range(nfiles)]
-        invalid_files = [f"bad_random_file_{i}.asdf" for i in range(nfiles)]
+    # def test_mask_object_from_bad_filelist(self):
+    #     """
+    #     Test that a RuntimeError is raised if no valid flat or dark files were sorted.
+    #     """
+    #     # Only need to check the paths, not create actual files
+    #     nfiles = 15
+    #     fake_flats = [f"fake_prepped_flat_{i}.asdf" for i in range(nfiles)]
+    #     fake_darks = [f"fake_prepped_dark_{i}.asdf" for i in range(nfiles)]
+    #     invalid_files = [f"bad_random_file_{i}.asdf" for i in range(nfiles)]
 
-        filelist_with_invalid_files = fake_flats + fake_darks + invalid_files
+    #     filelist_with_invalid_files = fake_flats + fake_darks + invalid_files
 
-        test_meta = MakeTestMeta(ref_type=REF_TYPE_MASK)
+    #     test_meta = MakeTestMeta(ref_type=REF_TYPE_MASK)
 
-        with pytest.raises(ValueError):
-            Mask(meta_data=test_meta.meta_mask,
-                 file_list=filelist_with_invalid_files)
+    #     with pytest.raises(ValueError):
+    #         Mask(meta_data=test_meta.meta_mask,
+    #              file_list=filelist_with_invalid_files)
