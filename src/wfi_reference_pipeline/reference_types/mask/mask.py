@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pandas as pd
 from astropy.convolution import Box2DKernel, convolve
-from astropy.io import fits
 from roman_datamodels.datamodels import MaskRefModel
 from roman_datamodels.dqflags import pixel as dqflags
 from scipy.optimize import curve_fit
@@ -69,7 +68,7 @@ class Mask(ReferenceType):
             Input data cube. Intended as input for Mask not generated from a file list.
 
         superdark: np.ndarray; default = None
-            The superdark that will be used to calculate the CDS noise and dark rate images / ramps.
+            The superdark that will be used to calculate the dark rate images / ramps.
 
         super_rate_image: np.ndarray; default = None
             This is a data product generated using flat-field exposures. It is a Super Flat that has been slope-fitted.
@@ -91,11 +90,10 @@ class Mask(ReferenceType):
         # Access methods of base class ReferenceType.
         super().__init__(
             meta_data=meta_data,
-            file_list=file_list,
-            ref_type_data=ref_type_data,
-            bit_mask=bit_mask,
             outfile=outfile,
-            clobber=clobber
+            clobber=clobber,
+            file_list=[""],
+            ref_type_data=ref_type_data
         )
 
         # Initialize attributes
@@ -248,7 +246,12 @@ class Mask(ReferenceType):
         self.mask_image = self.dq_mask
 
 
-    def update_mask_from_flats(self, from_smoothed, boxwidth, dead_sigma, max_low_qe_signal, min_open_adj_signal):
+    def update_mask_from_flats(self,
+                               from_smoothed,
+                               boxwidth,
+                               dead_sigma,
+                               max_low_qe_signal,
+                               min_open_adj_signal):
         """
         This function is used when ID'ing bad pixels from a super_rate_image.
         The following bad pixels classes are identified:
