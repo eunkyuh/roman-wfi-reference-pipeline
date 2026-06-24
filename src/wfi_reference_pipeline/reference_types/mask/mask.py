@@ -62,7 +62,7 @@ class Mask(ReferenceType):
             Object of meta information converted to dictionary when writing reference file.
 
         file_list: List of strings; default = None
-            List of file names with absolute paths to Darks and Flats
+            List of file paths. Used in Mask pipeline, not Mask module. 
 
         ref_type_data: numpy array; default = None
             Input data cube. Intended as input for Mask not generated from a file list.
@@ -92,7 +92,7 @@ class Mask(ReferenceType):
             meta_data=meta_data,
             outfile=outfile,
             clobber=clobber,
-            file_list=[""],
+            file_list=file_list,
             ref_type_data=ref_type_data
         )
 
@@ -137,7 +137,7 @@ class Mask(ReferenceType):
                         dead_sigma=5.,
                         max_low_qe_signal=0.5,
                         min_open_adj_signal=1.05,
-                        do_not_use_flags=["DEAD", "TELEGRAPH", "OTHER_BAD_PIXEL", "RESERVED_7"],
+                        do_not_use_flags=["DEAD", "RESERVED_6", "RESERVED_7", "TELEGRAPH", "OTHER_BAD_PIXEL", "RESERVED_7"],
                         from_smoothed=False,
                         sigma_thresh_jump=5.0,
                         min_jumps_for_rc_telegraph=1,
