@@ -9,7 +9,6 @@ from wfi_reference_pipeline.constants import (
     WFI_MODE_WSM,
     WFI_TYPE_IMAGE,
 )
-
 from wfi_reference_pipeline.utilities.ma_table_handler import MATableHandler
 
 
