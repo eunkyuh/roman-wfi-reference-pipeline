@@ -272,9 +272,12 @@ class Dark(ReferenceType):
         -------
         self.ref_type_data: input data array in cube shape
         self.wfi_type: constant string WFI_TYPE_IMAGE, WFI_TYPE_GRISM, or WFI_TYPE_PRISM
+        self.ma_table_id: integer. Unique MA table ID number. Default to the diagnostic table
+            IM_135_8: ID 1010
+            Diagnostic: ID 9010
         """
 
-        def __init__(self, ref_type_data, wfi_type, ma_table_id):
+        def __init__(self, ref_type_data, wfi_type, ma_table_id=9010):
             # Inherit reference_type.
             super().__init__(
                 data=ref_type_data,

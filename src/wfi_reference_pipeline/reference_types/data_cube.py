@@ -24,9 +24,13 @@ class DataCube(ABC):
     -------
     data: input data array in cube shape
     wfi_type: constant string WFI_TYPE_IMAGE, WFI_TYPE_GRISM, or WFI_TYPE_PRISM
+    ma_table_id: int
+        Unique MA table ID number. Default to the diagnostic table.
+        IM_135_8: ID 1010
+        Diagnostic: ID 9010        
     """
 
-    def __init__(self, data, wfi_type, ma_table_id):
+    def __init__(self, data, wfi_type, ma_table_id=9010):
         self.data = data
         self.frame_time = None  # wfi_mode dependent exposure frame time per read.
         self.num_i_pixels = None  # number of pixels in 2D frames/reads, assume square pixels only, 4096x4096 is standard but not default
