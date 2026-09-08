@@ -303,15 +303,15 @@ class Dark(ReferenceType):
             self.coeffs_array = None  # Fitted coefficients to data cube.
             self.covars_array = None  # Fitted covariance array to data cube.
 
-            # Read the MA table reference file and extract the effective exposure time
+            # If a non-diag table is requsted, read the MA table reference file and extract the effective exposure time
+            # using the MA table handler
+            # Update the self.time_array and self.num_reads based on the MA table reference file
             if ma_table_id:
                 self.ma_table_id = ma_table_id
-            else:
-                self.ma_table_id = 9010         # Default is the diagnostic table
-            matab_ref = MATableHandler()
-            read_pattern, effective_exposure_time = matab_ref._get_table_specific_info(self.ma_table_id)
-            self.time_array = effective_exposure_time
-            self.num_reads = read_pattern[-1][-1]   # num_reads is equal to the last element in the read_pattern
+                matab_ref = MATableHandler()
+                read_pattern, effective_exposure_time = matab_ref._get_table_specific_info(self.ma_table_id)
+                self.time_array = effective_exposure_time
+                self.num_reads = read_pattern[-1][-1]   # num_reads is equal to the last element in the read_pattern
 
 
         def fit_cube(self, degree=1):
