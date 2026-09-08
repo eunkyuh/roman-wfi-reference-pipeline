@@ -11,6 +11,7 @@ from wfi_reference_pipeline.constants import (
 )
 from wfi_reference_pipeline.reference_types.data_cube import DataCube
 from wfi_reference_pipeline.resources.wfi_meta_dark import WFIMetaDark
+from wfi_reference_pipeline.utilities.ma_table_handler import MATableHandler
 
 from ..reference_type import ReferenceType
 
@@ -51,6 +52,7 @@ class Dark(ReferenceType):
         bit_mask=None,
         outfile="roman_dark.asdf",
         clobber=False,
+        ma_table_id=None
     ):
         """
         The __init__ method initializes the class with proper input variables needed by the ReferenceType()
@@ -72,6 +74,8 @@ class Dark(ReferenceType):
         clobber: Boolean; default = False
             True to overwrite outfile if outfile already exists. False will not overwrite and exception
             will be raised if duplicate file found.
+        ma_table_id: integer, default = None in which case is the diagnostic table (ID 9010)
+            Unique MA table ID number in the MA table reference file
         ---------
 
         See reference_type.py base class for additional attributes and methods.
@@ -84,7 +88,7 @@ class Dark(ReferenceType):
             ref_type_data=ref_type_data,
             bit_mask=bit_mask,
             outfile=outfile,
-            clobber=clobber
+            clobber=clobber,
         )
 
         # Default meta creation for module specific ref type.
@@ -106,6 +110,12 @@ class Dark(ReferenceType):
         self.hot_pixel_rate = 0
         self.warm_pixel_rate = 0
         self.dead_pixel_rate = 0
+
+        # Setting the MA table ID
+        if ma_table_id:
+            self.ma_table_id = ma_table_id
+        else:
+            self.ma_table_id = 9010     # Diagnostic table
 
         # Module flow for creating reference file.
         # The fle list should only be one file, the super dark file.
@@ -131,7 +141,7 @@ class Dark(ReferenceType):
             dim = ref_type_data.shape
             if len(dim) == 3:
                 logging.info("User supplied 3D data cube to make dark reference file.")
-                self.data_cube = self.DarkDataCube(ref_type_data, self.meta_data.type)
+                self.data_cube = self.DarkDataCube(ref_type_data, self.meta_data.type, self.ma_table_id)
                 logging.info("Must call make_rate_image_from_data_cube to get rate image.")
             elif len(dim) == 2:
                 logging.info("User supplied 2D data array assumed to be dark rate.")
@@ -151,7 +161,7 @@ class Dark(ReferenceType):
         data = af.tree['roman']['data']
         if isinstance(data, u.Quantity):  # Only access data from quantity object.
             data = data.value
-        self.data_cube = self.DarkDataCube(data, self.meta_data.type)
+        self.data_cube = self.DarkDataCube(data, self.meta_data.type, self.ma_table_id)
 
     def make_rate_image_from_data_cube(self, fit_order=1):
         """
@@ -277,12 +287,11 @@ class Dark(ReferenceType):
             Diagnostic: ID 9010
         """
 
-        def __init__(self, ref_type_data, wfi_type, ma_table_id=9010):
+        def __init__(self, ref_type_data, wfi_type, ma_table_id=None):
             # Inherit reference_type.
             super().__init__(
                 data=ref_type_data,
                 wfi_type=wfi_type,
-                ma_table_id=ma_table_id,
             )
             self.rate_image = None  # The linear slope coefficient of the fitted data cube.
             self.rate_image_err = None  # uncertainty in rate image
@@ -293,6 +302,17 @@ class Dark(ReferenceType):
             self.ramp_model = None  # Ramp model of data cube.
             self.coeffs_array = None  # Fitted coefficients to data cube.
             self.covars_array = None  # Fitted covariance array to data cube.
+
+            # Read the MA table reference file and extract the effective exposure time
+            if ma_table_id:
+                self.ma_table_id = ma_table_id
+            else:
+                self.ma_table_id = 9010         # Default is the diagnostic table
+            matab_ref = MATableHandler()
+            read_pattern, effective_exposure_time = matab_ref._get_table_specific_info(self.ma_table_id)
+            self.time_array = effective_exposure_time
+            self.num_reads = read_pattern[-1][-1]   # num_reads is equal to the last element in the read_pattern
+
 
         def fit_cube(self, degree=1):
             """

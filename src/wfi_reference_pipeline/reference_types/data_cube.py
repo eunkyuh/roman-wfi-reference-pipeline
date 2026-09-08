@@ -9,7 +9,6 @@ from wfi_reference_pipeline.constants import (
     WFI_MODE_WSM,
     WFI_TYPE_IMAGE,
 )
-from wfi_reference_pipeline.utilities.ma_table_handler import MATableHandler
 
 
 class DataCube(ABC):
@@ -24,13 +23,9 @@ class DataCube(ABC):
     -------
     data: input data array in cube shape
     wfi_type: constant string WFI_TYPE_IMAGE, WFI_TYPE_GRISM, or WFI_TYPE_PRISM
-    ma_table_id: int
-        Unique MA table ID number. Default to the diagnostic table.
-        IM_135_8: ID 1010
-        Diagnostic: ID 9010        
     """
 
-    def __init__(self, data, wfi_type, ma_table_id=9010):
+    def __init__(self, data, wfi_type):
         self.data = data
         self.frame_time = None  # wfi_mode dependent exposure frame time per read.
         self.num_i_pixels = None  # number of pixels in 2D frames/reads, assume square pixels only, 4096x4096 is standard but not default
@@ -59,13 +54,6 @@ class DataCube(ABC):
             f"Creating exposure time array {self.num_reads} reads long with a frame "
             f"time of {self.frame_time} seconds."
         )
-
-        # Read the MA table reference file and extract the effective exposure time
-        matab_ref = MATableHandler()
-        read_pattern, effective_exposure_time = matab_ref._get_table_specific_info(ma_table_id)
-        self.time_array = effective_exposure_time
-
-        # Double check to make sure self.num_reads extracted from the input datacube is equal 
-        # to the length of the read_pattern extracted from the MA table reference file
-        if self.num_reads != len(read_pattern):
-            raise ValueError('The length of the read_pattern does not match the shape (the first dimension) of the datacube.')       
+        self.time_array = np.array(
+            [self.frame_time * i for i in range(1, self.num_reads + 1)]
+        )
