@@ -274,11 +274,12 @@ class Dark(ReferenceType):
         self.wfi_type: constant string WFI_TYPE_IMAGE, WFI_TYPE_GRISM, or WFI_TYPE_PRISM
         """
 
-        def __init__(self, ref_type_data, wfi_type):
+        def __init__(self, ref_type_data, wfi_type, ma_table_id):
             # Inherit reference_type.
             super().__init__(
                 data=ref_type_data,
                 wfi_type=wfi_type,
+                ma_table_id=ma_table_id,
             )
             self.rate_image = None  # The linear slope coefficient of the fitted data cube.
             self.rate_image_err = None  # uncertainty in rate image
