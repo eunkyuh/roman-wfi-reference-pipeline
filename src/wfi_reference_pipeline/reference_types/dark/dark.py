@@ -112,10 +112,7 @@ class Dark(ReferenceType):
         self.dead_pixel_rate = 0
 
         # Setting the MA table ID
-        if ma_table_id:
-            self.ma_table_id = ma_table_id
-        else:
-            self.ma_table_id = None#9010     # Diagnostic table
+        self.ma_table_id = ma_table_id
 
         # Module flow for creating reference file.
         # The fle list should only be one file, the super dark file.
