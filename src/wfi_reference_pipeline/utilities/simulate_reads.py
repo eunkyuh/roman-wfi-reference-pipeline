@@ -14,6 +14,7 @@ from wfi_reference_pipeline.constants import (
 
 def simulate_dark_reads(
     n_reads,
+    read_pattern=None,
     ni=DETECTOR_PIXEL_X_COUNT,
     exp_time=WFI_FRAME_TIME[WFI_MODE_WIM],
     dark_rate=0.01,
@@ -40,11 +41,12 @@ def simulate_dark_reads(
     ----------
     n_reads: int;
         The number of reads to be simulated into a cube of n_reads x ni x ni.
+    read_pattern: list of lists; Default=None (Diagnostic table)
+        Nested list of lists with integers for averaging reads into resultants.
     ni: int: default = DETECTOR_PIXEL_X_COUNT;
         The number of x=y pixels to be simulated in the square array.
     exp_time: float; default = WFI_FRAME_TIME[WFI_MODE_WIM]
         WIM exposure time is set to default from constants.py in seconds.
-        WIM exp_time = 3.04 seconds, WSM exp_time = 4.03 seconds
     dark_rate: float; default = 0.005
         The simulated detector dark rate in e/p/s electrons per pixel per second.
     dark_rate_var: float; default = 0.001
@@ -153,13 +155,39 @@ def simulate_dark_reads(
 
     # Create the read cube using the rate image and noise per read.
     read_cube = np.zeros((n_reads, ni, ni), dtype=np.float32)  # Initialize read cube
+
     for read_r in range(0, n_reads):
         # Create read cube by simulating data in reads and add noise.
         rn = np.random.normal(
             loc=noise_mean, scale=noise_std, size=(ni, ni)
-        )  # Random noise term to add; simulate a read noise.
-        read_cube[read_r, :, :] = (read_r + 1) * exp_time * rate_image + rn
-    return read_cube, rate_image
+        ) # Random noise term to add; simulate a read noise.
+        read_cube[read_r, :, :] = (read_r + 1) * exp_time * rate_image + rn 
+
+
+    if read_pattern: 
+        # Non-diagnostic tables         
+        # Need to re-sample the reads
+        n_resultants = len(read_pattern)
+        if n_reads != read_pattern[-1][-1]:
+            # Check to make sure n_reads match the last frame in the read_pattern
+            # If fails, stop here
+            raise ValueError('n_reads does not match with the last frame number in read_pattern.')
+        else:
+            # Re-sample to average reads into resultants
+            resampled_data = np.zeros((n_resultants,ni, ni), dtype=np.float32)
+
+            for resultant_i, read_pattern_frames in enumerate(read_pattern):
+                # Average the data by summing read by read and dividing by number of reads
+                for read_i in read_pattern_frames:
+                    print(f'read_i: {read_i}, read_pattern_frames: {read_pattern_frames}')
+                    resampled_data[resultant_i] += read_cube[read_i - 1]  # Adjusted for 0 indexing
+                resampled_data[resultant_i] /= len(read_pattern_frames)
+    else:
+        # Diagnostic tables
+        # Returning the read_cube as is as the 'resampled_data'
+        resampled_data = read_cube        
+
+    return resampled_data, rate_image
 
 
 def simulate_flat_reads(
