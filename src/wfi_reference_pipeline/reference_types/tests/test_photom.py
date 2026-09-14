@@ -94,8 +94,8 @@ def test_populate_datamodel_tree(photom_object):
 
     keys = data_model_tree['meta']['instrument'].keys()
     assert 'detector' in keys
-    assert 'median_gain' in keys
-    assert 'sigma_gain' in keys
+    assert 'name' in keys
+
 
 
 def test_photom_outfile_default(photom_object):

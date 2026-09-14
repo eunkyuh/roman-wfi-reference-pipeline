@@ -11,6 +11,9 @@ import yaml
 from crds.client import api
 from roman_datamodels.datamodels import EtcRefModel
 
+from wfi_reference_pipeline.reference_types.gain.gain import (
+    GAIN_CORRECTION_FACTOR,
+)
 from wfi_reference_pipeline.resources.wfi_meta_exposure_time_calculator import (
     WFIMetaETC,
 )
@@ -205,7 +208,8 @@ def update_etc_form_from_crds(output_dir):
     # -------------------------------
     # GAIN: grab gain files and take the median of the data array
     # The gain files from CRDS do not have the correction factor to account for IPC baked in
-    # This factor (~1.08) needs to be applied across-the-board to convert DNs to electrons
+    # This factor needs to be applied across-the-board to convert DNs to electrons
+    # See the Gain module for the actual value and its full explanation
     # -------------------------------
     gain_vals = {}          # Create an empty dictionary to store the gain values for each detector
     for filepath in gain_filepaths:
@@ -213,7 +217,11 @@ def update_etc_form_from_crds(output_dir):
             with rdm.open(filepath) as ref:
                 det = ref.meta.instrument.detector
                 val = float(np.median(ref.data))
-                val_corrected = val / 1.08
+
+                # Correct the gain values to account for IPC + small uncorrected nonlinearity
+                # Value is from T. Brandt
+                # See the Gain module for the actual value and its full explanation
+                val_corrected = val / GAIN_CORRECTION_FACTOR
                 print(f"{det}: gain -> {val:.2f}, gain_corrected -> {val_corrected:.2f}")
 
                 # Save the gain values in the dictionary to convert DNs to electrons 

@@ -19,11 +19,8 @@ from romancal.saturation import SaturationStep
 from romancal.wfi18_transient import WFI18TransientStep
 
 from wfi_reference_pipeline.constants import (
-    DETECTOR_PIXEL_X_COUNT,
-    DETECTOR_PIXEL_Y_COUNT,
     REF_TYPE_MASK,
 )
-from wfi_reference_pipeline.pipelines.dark_pipeline import DarkPipeline
 from wfi_reference_pipeline.pipelines.pipeline import Pipeline
 from wfi_reference_pipeline.reference_types.mask.mask import Mask
 from wfi_reference_pipeline.resources.make_dev_meta import MakeDevMeta
@@ -61,9 +58,6 @@ class MaskPipeline(Pipeline):
 
         self.flat_filelist = []
         self.dark_filelist = []
-
-        self.superdark = None
-        self.super_rate_image = None
 
 
     def select_uncal_files(self):
@@ -125,25 +119,15 @@ class MaskPipeline(Pipeline):
             pool.close()
             pool.join()
 
-        #self.prepped_files = prepped_files
-
         logging.info(f"The following files for {self.detector} have been prepped to run through the Mask pipeline: {self.prepped_files}")
 
         logging.info("Sorting prepped files into darks and flats")
         self._sort_filelist()
 
-        if self.dark_filelist:
-            logging.info(f"Creating a superdark using files: {self.dark_filelist}")
-            self.prep_superdark()
-
-        if self.flat_filelist:
-            logging.info(f"Creating super rate image using files: {self.flat_filelist}")
-            self.prep_super_rate()
-
         logging.info("Finished prepping the files to make Mask reference file from the RFP")
 
 
-    def run_pipeline(self, save_intermed=True):
+    def run_pipeline(self, save_intermed=True, input_super_dark=None, input_super_rate=None):
         """Run the Mask pipeline on self.prepped_files."""
         logging.info(f"Beginning to run Mask pipeline for {self.detector}")
 
@@ -156,12 +140,15 @@ class MaskPipeline(Pipeline):
 
         rfp_mask = Mask(
             meta_data=tmp.meta_mask,
-            superdark=self.superdark,
-            super_rate_image=self.super_rate_image,
-            ref_type_data=None,
+            dark_filelist=self.dark_filelist,
+            flat_filelist=self.flat_filelist,
+            input_super_dark=input_super_dark,
+            input_super_rate=input_super_rate,
             outfile=out_file_path,
             clobber=True,
         )
+
+        self.rfp_mask = rfp_mask
 
         logging.info("Beginning to run `make_mask_image`")
         rfp_mask.make_mask_image()
@@ -169,10 +156,10 @@ class MaskPipeline(Pipeline):
         logging.info(f"Generating the outfile Mask for {self.detector}")
         rfp_mask.generate_outfile()
 
-        logging.info("Mask pipeline run is complete.")
-
         if save_intermed:
             self.save_intermediate_products(rfp_mask)
+
+        logging.info("Mask pipeline run is complete.")
 
 
     def pre_deliver(self):
@@ -183,76 +170,24 @@ class MaskPipeline(Pipeline):
         pass
 
 
-    def prep_superdark(self):
-        """
-        Create a superdark from the prepped self.dark_filelist files.
-        This function uses the DarkPipeline superdark code. 
-        """
-        # Need the number of reads to run the superdark code
-        nreads = self._get_nreads()
-
-        # Setting the superdark path to be in the same dir as the prepped files
-        self.superdark_path = os.path.join(self.prep_path, f"superdark_for_mask_{self.detector}.asdf")
-
-        logging.info("Creating superdark and writing file to", self.superdark_path)
-
-        # Creating the dark pipeline object and creating the superdark
-        dark_pipe = DarkPipeline(self.detector)
-        dark_pipe.prep_superdark_file(
-            short_file_list=self.dark_filelist,
-            outfile=self.superdark_path,
-            short_dark_num_reads=nreads,
-        )
-
-        # Loading the superdark and setting as attr
-        self._load_superdark()
-
-        return
-    
-
-    def prep_super_rate(self):
-        """
-        This function creates a super rate image by averaging the inputted flat rate files.
-        The super rate image is then set as the attribtue `self.super_rate_image`
-        """
-        rate_images = np.zeros((len(self.flat_filelist), DETECTOR_PIXEL_Y_COUNT, DETECTOR_PIXEL_X_COUNT))
-
-        for i, file in enumerate(self.flat_filelist):
-            with asdf.open(file, memmap=True) as af:
-                
-                data = af["roman"]["data"]
-                data = data.value if hasattr(data, "value") else data
-
-                # TODO: are we getting rate images ? 
-                rate_images[i, :, :] = data[i, :, :]
-
-        # Calculating the super rate image
-        self.super_rate_image = np.nanmean(rate_images, axis=0)
-
-
     def save_intermediate_products(self, rfp_mask):
         """
         After the Mask module has run, save various intermediate products in the same
         directory as the superdark.
         """
-        if self.super_rate_image is not None:
-            self.super_rate_path = os.path.join(self.prep_path, f"super_rate_for_mask_{self.detector}.asdf")
+        if self.rfp_mask.super_rate_image is not None:
+            self.super_rate_path = os.path.join(self.rfp_mask.prep_path, f"super_rate_for_mask_{self.detector}.asdf")
             self._save_intermed_product(intermed_type="super_rate",
-                                        data_tree={"data": self.super_rate_image},
+                                        data_tree={"data": self.rfp_mask.super_rate_image},
                                         outpath=self.super_rate_path,
                                         filelist=self.flat_filelist)
         
         if hasattr(rfp_mask, "jump_count_img"):
-            self.jump_path = os.path.join(self.prep_path, f"jump_products_{self.detector}.asdf")
+            self.jump_path = os.path.join(self.rfp_mask.prep_path, f"jump_products_{self.detector}.asdf")
             data_tree = {"jump_mask_cube": rfp_mask.jump_mask_cube, "jump_count_img": rfp_mask.jump_count_img}
             self._save_intermed_product(intermed_type="jump_products",
                                         data_tree=data_tree,
                                         outpath=self.jump_path)
-            
-        if hasattr(rfp_mask, "metrics_df"):
-            self.metrics_df_path = os.path.join(self.prep_path, f"metrics_df_{self.detector}.csv")
-            rfp_mask.metrics_df.to_csv(self.metrics_df_path)
-            logging.info("Saved", self.metrics_df_path)
 
 
     def _get_previous_mask_from_crds(self):
@@ -343,54 +278,6 @@ class MaskPipeline(Pipeline):
 
             self.prepped_files.append(prep_output_file_path)
 
-    
-    def _sort_filelist(self):
-        """
-        Sort the prepped files into flats and darks based on filename.
-        """
-        logging.info("Sorting the files into flats vs darks in self.prepped_files")
-
-        invalid_files = []
-
-        for file in self.prepped_files:
-            filename = os.path.basename(file).lower()
-
-            if "flat" in filename:
-                self.flat_filelist.append(file)
-
-            elif "dark" in filename:
-                self.dark_filelist.append(file)
-
-            else:
-                invalid_files.append(file)
-
-        if invalid_files:
-            # TODO: should we set this as an attr instead of raising an error?
-            raise ValueError("The following files can not be sorted in prepped flats or darks:", invalid_files)
-    
-
-    def _get_nreads(self):
-        """Using the first file in self.dark_filelist, get the number of reads in the ramp."""
-        if not self.dark_filelist:
-            raise TypeError("No prepped dark files found in self.dark_filelist. Cannot make superdark.")
-        
-        with asdf.open(self.dark_filelist[0], memmap=True) as af:
-            data = af["roman"]["data"]
-            dark = data.value if hasattr(data, "value") else data
-            nreads = dark.shape[0]
-
-        return nreads
-    
-
-    def _load_superdark(self):
-        """Load the newly-created superdark file"""
-        logging.info("Loading superdark from", self.superdark_path)
-
-        with asdf.open(self.superdark_path, memmap=True) as af:
-            data = af["roman"]["data"]
-            superdark = data.value if hasattr(data, "value") else data
-            self.superdark = np.asarray(superdark)
-
 
     def _save_intermed_product(self, intermed_type, data_tree, outpath, filelist=None, file_permission=0o666):
         """
@@ -423,3 +310,28 @@ class MaskPipeline(Pipeline):
         os.chmod(outpath, file_permission)
 
         logging.info("Saved", outpath)
+
+
+    def _sort_filelist(self):
+        """
+        Sort the prepped files into flats and darks based on filename.
+        """
+        logging.info("Sorting the files into flats vs darks in self.file_list")
+
+        invalid_files = []
+
+        for file in self.prepped_files:
+            filename = os.path.basename(file).lower()
+
+            if "flat" in filename:
+                self.flat_filelist.append(file)
+
+            elif "dark" in filename:
+                self.dark_filelist.append(file)
+
+            else:
+                invalid_files.append(file)
+
+        if invalid_files:
+            # TODO: should we set this as an attr instead of raising an error?
+            raise ValueError("The following files can not be sorted in prepped flats or darks:", invalid_files)

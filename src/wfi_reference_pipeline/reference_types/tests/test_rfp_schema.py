@@ -270,8 +270,9 @@ class TestSchema():
 
         # Make RFP Mask reference file object for testing.
         rfp_mask = Mask(meta_data=tmp.meta_mask,
-                        file_list=None,
-                        ref_type_data=test_mask)
+                        dark_filelist=None,
+                        flat_filelist=None,
+                        input_user_mask=test_mask)
 
         # Make test asdf tree
         tf = asdf.AsdfFile()

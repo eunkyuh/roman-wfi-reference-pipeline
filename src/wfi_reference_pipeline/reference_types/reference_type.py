@@ -1,9 +1,11 @@
 import logging
 import os
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 import asdf
 import numpy as np
+from astropy.stats import sigma_clip
 from astropy.time import Time
 from roman_datamodels import dqflags
 
@@ -12,7 +14,9 @@ from wfi_reference_pipeline.constants import (
     DETECTOR_PIXEL_Y_COUNT,
     REF_TYPE_FGS_MASK,
     REF_TYPE_MASK,
+    WFI_FRAME_TIME,
     WFI_MASK_REF_TYPES,
+    WFI_MODE_WIM,
     WFI_REF_TYPES_WITHOUT_INPUT_DATA,
 )
 
@@ -69,8 +73,6 @@ class ReferenceType(ABC):
         if not have_input and meta_data.reference_type not in WFI_REF_TYPES_WITHOUT_INPUT_DATA:
             raise ValueError(f"Reference File type {meta_data.reference_type} requires input data in the form of a file_list or ref_type_data.")
 
-
-
         # Allow for input string use_after to be converted to astropy time object.
         if hasattr(meta_data, "use_after") and isinstance(meta_data.use_after, str):
             meta_data.use_after = Time(meta_data.use_after)
@@ -81,7 +83,6 @@ class ReferenceType(ABC):
         self.clobber = clobber
         self.mask_size = mask_size
 
-        #TODO fix importing dq flags from romancal
         # Load DQ flag definitions from romancal
         self.dqflag_defs = dqflags.pixel
 
@@ -202,7 +203,6 @@ class ReferenceType(ABC):
         pass
 
 
-
 class ReferenceTypeMask(ABC):
     """
     Base class for MASK and FGS_MASK reference files. This class supports two workflows 
@@ -210,7 +210,7 @@ class ReferenceTypeMask(ABC):
 
     Monthly Workflow
     ----------------
-    A new superdark and superslope are generated from required input files.
+    A new super dark and super rate are generated from required input files.
 
     Required:
         - dark_filelist
@@ -218,7 +218,7 @@ class ReferenceTypeMask(ABC):
 
     Weekly Workflow
     ---------------
-    A new superdark is generated while an existing superslope is reused.
+    A new super dark is generated while an existing super rate is reused.
 
     Required:
         - dark_filelist
@@ -230,13 +230,19 @@ class ReferenceTypeMask(ABC):
         Metadata object whose reference_type must be one of
         WFI_MASK_REF_TYPES.
     dark_filelist: list
-        List of dark files used to create a superdark.
+        List of dark files used to create a super dark.
     flat_filelist: list, optional
-        List of flat files used to create a superslope.
+        List of flat files used to create a super rate.
         Required for the monthly workflow.
+    input_super_dark: np.ndarray; default = None
+        The superdark that will be used to calculate the dark rate images / ramps.
     input_super_rate: numpy.ndarray, optional
-        Existing superslope image.
+        Existing super rate image.
         Required for the weekly workflow.
+    input_user_mask: 2D integer numpy array, default = None
+        A 2D data quality integer mask array to be applied to reference file.
+        If either a dark or flat filelist is supplied, then this input_user_mask
+        array will be added to the bad pixels identified in the darks / flats workflow.
     outfile: str, optional
         Output ASDF filename.
     clobber: bool, optional
@@ -248,9 +254,11 @@ class ReferenceTypeMask(ABC):
     def __init__(
         self,
         meta_data,
-        dark_filelist,
+        dark_filelist=None,
         flat_filelist=None,
+        input_super_dark=None,
         input_super_rate=None,
+        input_user_mask=None,
         outfile=None,
         clobber=False,
         mask_size=(
@@ -261,54 +269,224 @@ class ReferenceTypeMask(ABC):
 
         self._validate_meta_data(meta_data)
 
-        self._validate_file_list(
-            dark_filelist,
-            "dark_filelist",
-        )
-
-        self._validate_mask_size(mask_size)
-
         if not isinstance(clobber, bool):
             raise TypeError(
                 "'clobber' must be a boolean."
             )
 
-        monthly = flat_filelist is not None
-        weekly = input_super_rate is not None
+        # Validating the filelist(s) and input images
+        validations = (
+            (dark_filelist, "dark_filelist", self._validate_file_list),
+            (flat_filelist, "flat_filelist", self._validate_file_list),
+            (input_super_dark, "input_super_dark", self._validate_image),
+            (input_super_rate, "input_super_rate", self._validate_image),
+            (input_user_mask, "input_user_mask", self._validate_image)
+        )
 
-        if monthly == weekly:
-            raise ValueError(
-                "Specify exactly one workflow:\n"
-                "  Monthly : flat_filelist must be provided\n"
-                "  Weekly  : input_superslope must be provided"
-            )
+        for value, name, validator in validations:
+            if value is not None:
+                validator(value, name)
 
-        self.workflow = "monthly" if monthly else "weekly"
-
-        if monthly:
-            self._validate_file_list(
-                flat_filelist,
-                "flat_filelist",
-            )
-
-        if weekly:
-            self._validate_image(
-                input_super_rate,
-                "input_super_rate",
-                mask_size,
-            )
-
+        # Setting attributes
         self.meta_data = meta_data
 
         self.dark_filelist = dark_filelist
         self.flat_filelist = flat_filelist
-        self.input_super_rate = input_super_rate
+
+        self.super_dark = input_super_dark
+        self.super_rate = input_super_rate
+
+        self.mask_image = np.zeros((DETECTOR_PIXEL_Y_COUNT, DETECTOR_PIXEL_X_COUNT), dtype=np.uint32)
+        if input_user_mask is not None:
+            self.mask_image = input_user_mask
 
         self.outfile = outfile
         self.clobber = clobber
         self.mask_size = mask_size
 
-        self.dqflag_defs = dqflags.pixel
+        self.outdir = os.path.dirname(self.outfile)
+
+        # Creating super darks / rates as necessary
+        if self.super_dark is None and self.dark_filelist:
+            self.super_dark = self._prep_super_dark(self.outdir)
+
+        if self.super_rate is None and self.flat_filelist:
+            self.super_rate = self._prep_super_rate(self.outdir)
+
+        if self.super_dark is None and self.super_rate is None and input_user_mask is None:
+            raise ValueError(
+                            "Mask requires user to supply either input_user_mask, super dark, "
+                            "super rate image, or dark/flat file_list."
+                        )
+
+
+    def _prep_super_dark(self, prep_path):
+        """
+        Create a super dark from the prepped self.dark_filelist files.
+        This function uses the DarkPipeline super dark code. 
+
+        Parameters
+        ----------
+        prep_path: str
+            Path to save the super dark. Super darks are saved by default.
+        """
+        from wfi_reference_pipeline.pipelines.dark_pipeline import DarkPipeline
+        # Need the number of reads to run the super dark code
+        nreads = self._get_nreads()
+
+        # Setting the superdark path to be in the same dir as the prepped files
+        detector = self.meta_data.instrument_detector
+
+        superdark_filename = f"superdark_for_{self.meta_data.reference_type}_{detector}.asdf"
+        self.superdark_path = os.path.join(prep_path, superdark_filename)
+
+        logging.info("Creating super dark and writing file to %s", self.superdark_path)
+
+        # Creating the dark pipeline object and creating the super dark
+        dark_pipe = DarkPipeline(detector)
+        dark_pipe.prep_superdark_file(
+            short_file_list=self.dark_filelist,
+            outfile=self.superdark_path,
+            short_dark_num_reads=nreads,
+        )
+
+        # Return the super dark
+        return self._load_superdark()
+
+
+    def _get_nreads(self):
+        """Using the first file in self.dark_filelist, get the number of reads in the ramp."""
+        if not self.dark_filelist:
+            raise TypeError("No prepped dark files found in self.dark_filelist. Cannot make superdark.")
+        
+        with asdf.open(self.dark_filelist[0], memmap=True) as af:
+            data = af["roman"]["data"]
+            dark = data.value if hasattr(data, "value") else data
+            nreads = dark.shape[0]
+
+        return nreads
+    
+
+    def _load_superdark(self):
+        """Load the newly-created super dark file"""
+        logging.info("Loading super dark from", self.superdark_path)
+
+        with asdf.open(self.superdark_path, memmap=True) as af:
+            data = af["roman"]["data"]
+            superdark = data.value if hasattr(data, "value") else data
+            return np.asarray(superdark)
+    
+
+    def _prep_super_rate(self, prep_path, sig_clip_low=3.0, sig_clip_high=3.0):
+        """
+        This function creates a super rate image by averaging the inputted flat rate files.
+
+        Parameters
+        ----------
+        prep_path: str
+            Path to save the super rate. Super rates are saved by default.
+        """
+        rate_images = np.zeros((len(self.flat_filelist), DETECTOR_PIXEL_Y_COUNT, DETECTOR_PIXEL_X_COUNT))
+
+        for i, file in enumerate(self.flat_filelist):
+            with asdf.open(file, memmap=True) as af:
+                
+                data = af["roman"]["data"]
+                data = data.value if hasattr(data, "value") else data
+
+                readtimes = [[WFI_FRAME_TIME[WFI_MODE_WIM] * t] for t in range(len(data))]
+
+                # TODO: are we getting rate images ? 
+                rate_images[i, :, :] = self._slopes_uniform_weights(data, readtimes)
+
+        # Sigma clipping to remove cosmic rays
+        clipped_rates = sigma_clip(rate_images,
+                                   sigma_lower=sig_clip_low,
+                                   sigma_upper=sig_clip_high,
+                                   cenfunc="mean",
+                                   axis=0,
+                                   masked=False,
+                                   copy=False)
+
+        super_rate_image = np.nanmean(clipped_rates, axis=0)
+        self._save_super_rate_image(super_rate_image, prep_path)
+
+        return super_rate_image
+
+
+    def _slopes_uniform_weights(self, d, readtimes, tensor=True):
+        """
+        Compute ramp slopes using uniform (read-noise-limited) weights.
+
+        Parameters
+        ----------
+        input_model : RampModel
+            Model containing ramps.
+
+        Returns
+        -------
+        slopes : ndarray
+            The slope for each pixel under uniform weighting, which is optimal
+            in the read noise limit.  All flags, including saturation and
+            jump, will be ignored.
+        """
+
+        # The lines below compute the weight for each resultant in the case
+        # of uniform weighting (a diagonal covariance matrix consisting only
+        # of read noise).
+
+        ni = np.array([len(t) for t in readtimes])
+        ti = np.array([np.mean(t) for t in readtimes])
+        n = np.sum(ni)
+        nt = np.sum(ni * ti)
+        ntt = np.sum(ni * ti**2)
+        weights = (n * ni * ti - nt * ni) / (n * ntt - nt**2)
+
+        data = d[0] if d.ndim == 4 else d
+
+        if tensor:
+            return np.tensordot(weights, data, axes=(0, 0))
+
+        return np.sum(weights[:, None, None] * data, axis=0)
+
+
+    def _save_super_rate_image(self, super_rate_image, prep_path, file_permission=0o666):
+        """
+        Save the super rate image to the same path as the super dark.
+        """
+        detector = self.meta_data.instrument_detector
+
+        meta_data = {'pedigree': "DUMMY",
+                     'description': "Super rate file calibration product "
+                                     "generated from Reference File Pipeline.",
+                     'date': Time(datetime.now()),
+                     'detector': detector,
+                     'filelist': self.flat_filelist}
+
+        tree = {
+            "roman": {
+                "meta": meta_data,
+                "data": super_rate_image,
+            }
+        }
+
+        super_rate_filename = f"super_rate_for_{self.meta_data.reference_type}_{detector}.asdf"
+        self.super_rate_path = os.path.join(prep_path, super_rate_filename)
+
+        af = asdf.AsdfFile()
+        af.tree = tree
+        af.write_to(self.super_rate_path)
+        os.chmod(self.super_rate_path, file_permission)
+
+
+    def _normalize_super_rate_image(self, super_rate_image):
+        """
+        Computes the normalized super rate image by dividing the super rate
+        image by its nanmean.
+        """
+        logging.info("Creating the normalized super rate image")
+        return super_rate_image / np.nanmean(super_rate_image)
+
 
     def _validate_meta_data(self, meta_data):
         """Validate the meta data object."""
@@ -350,7 +528,7 @@ class ReferenceTypeMask(ABC):
         self,
         image,
         image_name,
-        expected_shape,
+        expected_shape=(DETECTOR_PIXEL_Y_COUNT, DETECTOR_PIXEL_X_COUNT),
     ):
         """Validate an input image."""
 
@@ -359,18 +537,23 @@ class ReferenceTypeMask(ABC):
                 f"'{image_name}' must be a numpy.ndarray."
             )
 
-        if image.ndim != 2:
+        if image.dtype != np.uint32 and image_name == "input_user_mask":
+            raise TypeError(
+                f"'{image_name}' must be np.uint32"
+            )
+
+        if image.ndim != 2 and image_name != "input_super_dark":
             raise ValueError(
                 f"'{image_name}' must be a 2D array."
             )
 
-        if image.shape != expected_shape:
+        if image.shape != expected_shape and image_name != "input_super_dark":
             raise ValueError(
                 f"'{image_name}' must have shape "
                 f"{expected_shape}. Got {image.shape}."
             )
 
-    def check_outfile(self):
+    def _check_outfile(self):
         """
         Check if the output file exists, and take appropriate action.
         """
@@ -409,9 +592,9 @@ class ReferenceTypeMask(ABC):
         obj = datamodel_tree if datamodel_tree else self.populate_datamodel_tree()
 
         # check to see if file currently exists
-        self.check_outfile()
+        self._check_outfile()
 
-        if self.metadata.reference_type == REF_TYPE_MASK:
+        if self.meta_data.reference_type == REF_TYPE_MASK:
             if not hasattr(obj, "save"):
                 raise TypeError(
                     "MASK reference type requires a Roman DataModel "
@@ -422,7 +605,7 @@ class ReferenceTypeMask(ABC):
             )
             obj.save(self.outfile)
 
-        elif self.metadata.reference_type == REF_TYPE_FGS_MASK:
+        elif self.meta_data.reference_type == REF_TYPE_FGS_MASK:
             logging.info(
                 "Writing FGS_MASK reference using ASDF writer."
             )
@@ -434,7 +617,7 @@ class ReferenceTypeMask(ABC):
 
         else:
             raise ValueError(
-                f"Unsupported reference type '{self.metadata.reference_type}' using ReferenceTypeMask()."
+                f"Unsupported reference type '{self.meta_data.reference_type}' using ReferenceTypeMask()."
             )
 
         os.chmod(self.outfile, file_permission)

@@ -5,10 +5,10 @@ from pathlib import Path
 
 import crds
 import numpy as np
+import pandas as pd
 import roman_datamodels as rdm
 import synphot as syn
 from astropy import units as u
-from astropy.io import ascii
 from astropy.stats import sigma_clipped_stats
 from crds.client import api
 from roman_datamodels.datamodels import WfiImgPhotomRefModel
@@ -17,6 +17,9 @@ from synphot.models import Empirical1D
 from wfi_reference_pipeline.constants import (
     COLLECTING_AREA_M2,
     WFI_REF_OPTICAL_ELEMENTS,
+)
+from wfi_reference_pipeline.reference_types.gain.gain import (
+    GAIN_CORRECTION_FACTOR,
 )
 from wfi_reference_pipeline.resources.wfi_meta_photom import (
     WFIMetaPhotom,
@@ -73,10 +76,6 @@ class Photom(ReferenceType):
 
         # Build the gain dictionary upon the initialization  
         self.gain, self.pam = build_gain_and_pam_dict_from_crds()
-        # import pdb
-        # pdb.set_trace()
-
-        # self.gain = gain()
 
         # Check if the gain dictionary is properly populated
         # should be a dictionary containing the gain values for all 18 detectors
@@ -99,7 +98,7 @@ class Photom(ReferenceType):
                 raise ValueError('PAM dictionary does not contain information for all 18 detectors')
         elif self.pam is None:
             raise ValueError('The PAM dictionary is empty. Check the reference file exists')                       
-        # self.pam = pam()
+
 
     def populate_datamodel_tree(self):
         """
@@ -132,12 +131,17 @@ class Photom(ReferenceType):
 
         det = self.meta_data.instrument_detector
         det_num = str.split(det, 'WFI')[-1]     # Getting just the detector number without the prefix 'WFI'
-        throughput_path = (Path(__file__).parent / 'Roman_effarea_tables_20240327' / f'Roman_effarea_v8_SCA{det_num}_20240301.ecsv').resolve()
-        thru_tab = ascii.read(str(throughput_path))
 
-        if 'Wave' not in thru_tab.colnames:
+        # Retreiving the effective area curves from the Roman Technical Repo
+        throughput_path = 'https://raw.githubusercontent.com/RomanSpaceTelescope/roman-technical-information/' \
+                            'refs/heads/main/roman_technical_information/data/WideFieldInstrument/Imaging/EffectiveAreas/' \
+                            f'Roman_effarea_v8_SCA{det_num}_20240301.ecsv'
+        thru_tab = pd.read_csv(throughput_path, header=17) # Data header starts from line 17
+        thru_tab.columns = thru_tab.columns.str.strip()     # Stripping the extra leading space in the filter names
+
+        if 'Wave' not in thru_tab.columns:
             raise ValueError(f"'Wave' column not found in {throughput_path}")
-        
+
         # Check if the throughput table contains data for WFI optical elements
         for filter in WFI_REF_OPTICAL_ELEMENTS:
             # Re-format the filter label to match the label in the throughput table
@@ -147,7 +151,8 @@ class Photom(ReferenceType):
                 elif filter == 'GRISM':
                     filter = 'Grism_1stOrder'
 
-            if filter not in thru_tab.colnames:
+            if filter not in thru_tab.columns:
+            # if filter not in thru_tab.colnames:
                 if filter == 'DARK':  
                     # Throughput table does not contain dark information
                     pass
@@ -184,8 +189,9 @@ class Photom(ReferenceType):
             elif filter == 'GRISM':
                 filter = 'Grism_1stOrder'
             
-            col = throughput_table[filter].data.astype(np.float32)  # safe math
-            waves_micron = throughput_table['Wave'].data * u.micron
+
+            col = throughput_table[filter].values.astype(np.float32) # safe math
+            waves_micron = throughput_table['Wave'].values * u.micron
 
             # If the input file file contains throughput and not effective area, convert the data to effective area
             # by multiplying the collecting area
@@ -274,8 +280,6 @@ class Photom(ReferenceType):
 
 
         # Get the pixel area map for the detector
-        # rfp_pam = pam(self.meta_data.instrument_detector)
-        # self.pixel_area_sr = rfp_pam.meta_data.pixelarea_steradians
         self.pixel_area_sr = self.pam[self.meta_data.instrument_detector]['pixelarea_steradians']
 
 
@@ -284,6 +288,7 @@ class Photom(ReferenceType):
         self.g_rerr = float(self.gain[self.meta_data.instrument_detector]['std']) / self.g if self.g != 0 else 0.0
 
 
+        print(f'--------{self.meta_data.instrument_detector}--------')
         for optical_element in WFI_REF_OPTICAL_ELEMENTS:
             print(f'Building the phot_table for {optical_element}')
             self.meta_data.optical_element = optical_element
@@ -360,7 +365,11 @@ def build_gain_and_pam_dict_from_crds():
                 det = ref.meta.instrument.detector
                 _, med, std = sigma_clipped_stats(ref.data, sigma=4, maxiters=3)
                 val = float(med)
-                val_corrected = val / 1.08
+
+                # Correct the gain values to account for IPC + small uncorrected nonlinearity
+                # Value is from T. Brandt
+                # See the Gain module for the actual value and its full explanation
+                val_corrected = val / GAIN_CORRECTION_FACTOR  
                 print(f"{det}: gain -> {val:.2f}, gain_corrected -> {val_corrected:.2f}")
 
                 # Save the gain values in the dictionary to convert DNs to electrons 

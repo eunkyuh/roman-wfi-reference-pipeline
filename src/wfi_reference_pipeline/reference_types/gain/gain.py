@@ -127,3 +127,11 @@ class Gain(ReferenceType):
 
         return gain_datamodel_tree
 
+
+# =====================================================================
+#  Gain correction factor from T. Brandt
+#  The correction factor for the gain is 1.1 and this single value is for all 18 detectors.
+#  The IPC will make the factor a little higher than 1.1 (roughly 1.15) 
+#  but then partially compensated by the impact of small uncorrected nonlinearity. 
+# =====================================================================
+GAIN_CORRECTION_FACTOR = 1.1
