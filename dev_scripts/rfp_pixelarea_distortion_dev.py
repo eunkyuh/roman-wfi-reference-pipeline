@@ -1,13 +1,8 @@
-from wfi_reference_pipeline.resources.make_dev_meta import MakeDevMeta
+from astropy.time import Time
+
 from wfi_reference_pipeline.reference_types.distortion.distortion import Distortion
 from wfi_reference_pipeline.reference_types.pixel_area.pixel_area import PixelArea
-
-import asdf
-from astropy import units as u
-from astropy.time import Time
-from astropy.modeling import models
-
-
+from wfi_reference_pipeline.resources.make_dev_meta import MakeDevMeta
 
 for i in range(1, 19):
     wfi_id = f'WFI{i:02}'

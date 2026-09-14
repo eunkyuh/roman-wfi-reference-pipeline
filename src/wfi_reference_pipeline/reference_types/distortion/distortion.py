@@ -1,17 +1,17 @@
-import asdf
+import logging
+
 import numpy as np
-from roman_datamodels.datamodels import DistortionRefModel
+import pysiaf
 
 # from astropy.modeling import fitting  TODO- uncomment when needed
 # from astropy.stats import sigma_clip  TODO - uncomment when needed
-from astropy import units as u
 from astropy.modeling.models import Mapping, Polynomial2D, Shift
-import pysiaf
 from pysiaf.aperture import DISTORTION_ATTRIBUTES
-import logging
+from roman_datamodels.datamodels import DistortionRefModel
+
+from wfi_reference_pipeline.resources.wfi_meta_distortion import WFIMetaDistortion
 
 from ..reference_type import ReferenceType
-from wfi_reference_pipeline.resources.wfi_meta_distortion import WFIMetaDistortion
 
 # from ..utilities.reference_catalog import ReferenceCatalog  TODO - Verify Existence
 
@@ -277,7 +277,7 @@ class Distortion(ReferenceType):
         #refcat = RefCat.matched_cat
 
         # For now rely on alignment data from siaf (this will probably need an update?)
-        siaf_data = siaf.RomanSiaf().read_roman_siaf()
+        siaf_data = pysiaf.siaf.Siaf().read_roman_siaf()
         aperture = siaf_data[f'{detector}_FULL']
 
         # Find the shift between (x_sci, y_sci) = (0, 0) and the reference location.
@@ -286,8 +286,8 @@ class Distortion(ReferenceType):
 
         # Create models, we can initialize at 0 or at the SIAF values.
         if init_as_siaf:
-            x_for, y_for = siaf.get_distortion_coeffs(f'{detector}_FULL')
-            x_inv, y_inv = siaf.get_distortion_coeffs(f'{detector}_FULL', inverse=True)
+            x_for, y_for = pysiaf.siaf.Siaf.get_distortion_coeffs(f'{detector}_FULL')
+            x_inv, y_inv = pysiaf.siaf.Siaf.get_distortion_coeffs(f'{detector}_FULL', inverse=True)
             # Models use initial models from SIAF
             sci2idl_x = Polynomial2D(degree=degree, **x_for)
             sci2idl_y = Polynomial2D(degree=degree, **y_for)
