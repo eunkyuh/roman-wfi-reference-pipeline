@@ -154,19 +154,92 @@ class TestPixelArea:
             "roman_pixelarea.asdf"
         )
 
-    def test_pixelarea_auto_generation(
+    def test_pixelarea_generation_from_siaf(
             self,
             valid_meta_data,
-            ):
+            mocker,
+        ):
         """
-        Verify PAM generation path.
+        Verify PAM generation from a SIAF file using a mocked SIAF.
         """
+
+        mock_siaf = mocker.patch(
+            "wfi_reference_pipeline.reference_types.pixel_area.pixel_area.pysiaf.siaf.Siaf"
+        )
+
+        mock_aperture = mock_siaf.return_value.__getitem__.return_value
+
+        mock_aperture.get_polynomial_coefficients.return_value = {
+            "Sci2IdlX": np.array(
+                [
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ]
+            ),
+            "Sci2IdlY": np.array(
+                [
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ]
+            ),
+        }
 
         pam = PixelArea(
             meta_data=valid_meta_data,
+        )
+
+        pam.make_pixel_area_from_siaf_file(
+            filename="fake_siaf.xml",
+            basepath="/fake/siaf/path/",
+        )
+
+        mock_siaf.assert_called_once_with(
+            "roman",
+            filename="fake_siaf.xml",
+            basepath="/fake/siaf/path/",
+            AperNames=None,
         )
 
         assert pam.pixel_area is not None
         assert pam.pixel_area.dtype == np.float32
         assert pam.pixel_area.ndim == 2
         assert np.isfinite(pam.pixel_area).all()
+        
