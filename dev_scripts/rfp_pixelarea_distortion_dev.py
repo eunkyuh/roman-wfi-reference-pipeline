@@ -54,6 +54,10 @@ for i in range(1, 19):
     outfile = output_dir + 'roman_rfp_rgc_pixelarea_' + wfi_id + '.asdf'
 
     rfp_pixelarea = PixelArea(meta_data=tmp.meta_pixelarea, outfile=outfile, clobber=True)
+    rfp_pixelarea.make_pixel_area_from_siaf_file(
+        filename="newsiaf_20260727.xml",
+        basepath="/grp/roman/RFP/DEV/build_files/Build_26Q4_B23/",
+    )
     rfp_pixelarea.generate_outfile()
 
     print('Made reference file', rfp_pixelarea.outfile)
