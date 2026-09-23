@@ -1,5 +1,5 @@
 [project]
-name = "roman_wfi_reference_file_pipeline"
+name = "roman-wfi-reference-file-pipeline"
 description = "Reference file pipeline for the Roman WFI instrument."
 requires-python = ">=3.12"
 authors = [
