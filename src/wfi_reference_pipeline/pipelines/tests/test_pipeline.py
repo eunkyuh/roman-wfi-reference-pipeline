@@ -101,11 +101,11 @@ def test_init_ingest_path_from_config_passes(pipeline):
 
 
 def test_init_prep_path_from_config_passes(pipeline):
-    assert pipeline.prep_path == Path(STUB_CONFIG["prep_dir_root"]) / Path(f"{STUB_REFERENCE_TYPE}") / Path(f"{STUB_DETECTOR}")
+    assert pipeline.prep_path == Path(STUB_CONFIG["prep_dir_root"]) / Path(f"{STUB_REFERENCE_TYPE}")
 
 
 def test_init_pipeline_out_path_from_config_passes(pipeline):
-    assert pipeline.pipeline_out_path == Path(STUB_CONFIG["rfp_output_dir_root"]) / Path(f"{STUB_REFERENCE_TYPE}") / Path(f"{STUB_DETECTOR}")
+    assert pipeline.pipeline_out_path == Path(STUB_CONFIG["rfp_output_dir_root"]) / Path(f"{STUB_REFERENCE_TYPE}")
 
 
 ### Config Failure Tests ###
