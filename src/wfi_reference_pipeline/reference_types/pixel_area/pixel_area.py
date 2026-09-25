@@ -92,38 +92,34 @@ class PixelArea(ReferenceType):
         if len(self.meta_data.description) == 0:
             self.meta_data.description = "Roman WFI pixel area reference file."
 
-        self.siaf = pysiaf.Siaf("Roman")
+        self.detector = self.meta_data.instrument_detector
 
-        detector = self.meta_data.instrument_detector
-
-        if detector is None:
+        if self.detector is None:
             raise ValueError(
                 "instrument_detector must be supplied in metadata."
             )
 
-        self.detector = detector.upper()
+        self.detector = self.detector.upper()
+
+        self.siaf = None
 
         self.x_coeffs = None
         self.y_coeffs = None
         self.nominal_pixel_area = None
 
         if ref_type_data is not None:
-
             if not isinstance(ref_type_data, np.ndarray):
                 raise TypeError(
                     f"ref_type_data must be a numpy.ndarray, "
                     f"received {type(ref_type_data)}"
                 )
-
             self.pixel_area = ref_type_data.astype(np.float32)
-
         else:
-            self.pixel_area = self.make_pixel_area_image()
-
-            logging.debug(
-                f"Initialized PixelArea reference file: {outfile}"
+            self.pixel_area = None
+        logging.debug(
+            f"Initialized PixelArea reference file: {outfile}"
             )
-
+        
     def calculate_error(self):
         """
         Abstract method not applicable.
@@ -135,6 +131,58 @@ class PixelArea(ReferenceType):
         Abstract method not utilized.
         """
         pass
+
+    def make_pixel_area_from_siaf_file(
+        self,
+        filename="newsiaf_20260727.xml",
+        basepath=None,
+        include_border=False,
+        refpix_area=False,
+        ):
+
+        """
+        Generate a pixel area map from a Roman SIAF file.
+
+        Parameters
+        ----------
+        filename: str
+            Name of the Roman SIAF XML file.
+
+        basepath: str or None
+            Directory containing the SIAF XML file. If None, pysiaf
+            will use its default SIAF search path.
+
+        include_border: bool
+            Include reference pixel border.
+
+        refpix_area: bool
+            If include_border=True, compute areas for reference pixels.
+            Otherwise set them to zero.
+
+        Returns
+        -------
+        numpy.ndarray
+            Normalized pixel area map.
+        """
+
+        self.siaf = pysiaf.siaf.Siaf(
+            "roman",
+            filename=filename,
+            basepath=basepath,
+            AperNames=None,
+        )
+
+        self.pixel_area = self.make_pixel_area_image(
+            include_border=include_border,
+            refpix_area=refpix_area,
+        )
+
+        logging.debug(
+            "Generated PixelArea reference file from SIAF file: %s",
+            filename,
+        )
+
+        return self.pixel_area
 
     def make_pixel_area_image(self,
                               include_border=False,
@@ -337,3 +385,4 @@ class PixelArea(ReferenceType):
         )
 
         return np.abs(jacobian)
+    

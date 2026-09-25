@@ -1,12 +1,15 @@
-import asdf
+import logging
+
 import numpy as np
-import roman_datamodels.stnode as rds
+import pysiaf
 
 # from astropy.modeling import fitting  TODO- uncomment when needed
 # from astropy.stats import sigma_clip  TODO - uncomment when needed
-from astropy import units as u
 from astropy.modeling.models import Mapping, Polynomial2D, Shift
-from soc_roman_tools.siaf import siaf
+from pysiaf.aperture import DISTORTION_ATTRIBUTES
+from roman_datamodels.datamodels import DistortionRefModel
+
+from wfi_reference_pipeline.resources.wfi_meta_distortion import WFIMetaDistortion
 
 from ..reference_type import ReferenceType
 
@@ -20,27 +23,89 @@ class Distortion(ReferenceType):
     method make_distortion() creates the ASDF distortion reference file.
     """
 
-    def __init__(self, cdt_model, meta_data, bit_mask=None, outfile=None,
+    def __init__(self, 
+                 meta_data,
+                 bit_mask=None, 
+                 outfile=None,
                  clobber=False):
+
+        # Access methods of base class ReferenceType
+        super(Distortion, self).__init__(meta_data,  
+                                         bit_mask=bit_mask,
+                                         clobber=clobber)
+
         # If no output file name given, set default file name.
         self.outfile = outfile if outfile else 'roman_distortion.asdf'
 
-        # Access methods of base class ReferenceType
-        super(Distortion, self).__init__(cdt_model, meta_data, bit_mask=bit_mask,
-                                         clobber=clobber)
+        # Default meta creation for module specific ref type.
+        if not isinstance(meta_data, WFIMetaDistortion):
+            raise TypeError(
+                f"Meta Data has reftype {type(meta_data)}, expecting WFIMetaDistortion"
+            )
+        if len(self.meta_data.description) == 0:
+            self.meta_data.description = "Roman WFI distortion reference file."
 
-        # Update metadata with distortion file type info if not included.
-        if 'description' not in self.meta.keys():
-            self.meta['description'] = 'Roman WFI distortion reference file.'
-        else:
-            pass
-        if 'reftype' not in self.meta.keys():
-            self.meta['reftype'] = 'DISTORTION'
-        else:
-            pass
+        logging.debug(f"Default distortion reference file object: {outfile} ")
 
-        self.meta['input_units'] = u.pixel
-        self.meta['output_units'] = u.arcsec
+    def get_astropy_polynomial_coeffs(self, aperture, seed):
+        """
+        Convert pysiaf Roman SIAF polynomial coefficients into the
+        keyword dictionary expected by astropy.modeling.Polynomial2D.
+
+        Parameters
+        ----------
+        aperture : pysiaf.aperture.RomanAperture
+            SIAF aperture.
+
+        seed : str
+            One of:
+                'Sci2IdlX'
+                'Sci2IdlY'
+                'Idl2SciX'
+                'Idl2SciY'
+
+        Returns
+        -------
+        dict
+            Dictionary with Astropy Polynomial2D coefficient names.
+        """
+        degree = aperture.Sci2IdlDeg
+        number_of_coefficients = (degree + 1) * (degree + 2) // 2
+
+        result = {}
+
+        attributes = [
+            attr for attr in DISTORTION_ATTRIBUTES
+            if attr.startswith(seed)
+        ][:number_of_coefficients]
+
+        for attr in attributes:
+            # SIAF naming:
+            #
+            #     X00 -> c0_0
+            #     X10 -> c1_0
+            #     X11 -> c0_1
+            #     X20 -> c2_0
+            #     X21 -> c1_1
+            #     X22 -> c0_2
+            #     X30 -> c3_0
+            #     X31 -> c2_1
+            #     X32 -> c1_2
+            #     X33 -> c0_3
+            #
+            # In general, SIAF Xij maps to Astropy c(i-j)_j.
+
+            ij = attr[len(seed):]
+
+            i = int(ij[0])
+            j = int(ij[1])
+
+            x_power = i - j
+            y_power = j
+
+            result[f'c{x_power}_{y_power}'] = getattr(aperture, attr)
+
+        return result
 
     def make_siaf_distortion(self, detector):
         """
@@ -59,22 +124,39 @@ class Distortion(ReferenceType):
         -------
         None
         """
-        # Check if the output file exists, and take appropriate action.
-        self.check_output_file(self.outfile)
+        # Read in the Roman SIAF.
+        siaf_data = pysiaf.siaf.Siaf(
+            'roman',
+            filename='newsiaf_20260727.xml',
+            basepath='/grp/roman/RFP/DEV/build_files/Build_26Q4_B23/',
+            AperNames=None
+        )
 
-        # Read in the Roman SIAF. Use the default version from soc_roman_tools.
-        siaf_data = siaf.RomanSiaf().read_roman_siaf()
         aperture = siaf_data[f'{detector}_FULL']
 
-        # Find the shift between (x_sci, y_sci) = (0, 0) and the reference location.
+        # Find the shift between (x_sci, y_sci) = (0, 0)
+        # and the reference location.
         x_center = Shift(-aperture.XSciRef)
         y_center = Shift(-aperture.YSciRef)
 
-        # Retrieve the distortion coefficients. We define the forward coefficients
-        # to be Sci -> Idl and the inverse to be Idl -> Sci. We need both sets
-        # of coefficients.
-        x_for, y_for = siaf.get_distortion_coeffs(f'{detector}_FULL')
-        x_inv, y_inv = siaf.get_distortion_coeffs(f'{detector}_FULL', inverse=True)
+        # Retrieve the distortion coefficients.
+        #
+        # Current pysiaf returns the SIAF coefficients as NumPy arrays.
+        # Convert them to the coefficient dictionaries expected by
+        # astropy.modeling.Polynomial2D.
+        x_for = self.get_astropy_polynomial_coeffs(
+            aperture, 'Sci2IdlX'
+        )
+        y_for = self.get_astropy_polynomial_coeffs(
+            aperture, 'Sci2IdlY'
+        )
+
+        x_inv = self.get_astropy_polynomial_coeffs(
+            aperture, 'Idl2SciX'
+        )
+        y_inv = self.get_astropy_polynomial_coeffs(
+            aperture, 'Idl2SciY'
+        )
 
         # Retrieve V frame information.
         v3_angle = np.radians(aperture.V3IdlYAngle)
@@ -132,8 +214,13 @@ class Distortion(ReferenceType):
         self.data = index_shift & index_shift | x_center & y_center | \
             core_model | v2_ref & v3_ref
 
-    def make_distortion_from_stars(self, detector, img, refcat_path,
-                                   degree=5, init_as_siaf=True, niter=10,
+    def make_distortion_from_stars(self, 
+                                   detector, 
+                                   img, 
+                                   refcat_path,
+                                   degree=5, 
+                                   init_as_siaf=True, 
+                                   niter=10,
                                    **match_kwargs):
         """
         The method make_distortion_from_stars generates a distortion ASDF file with
@@ -190,7 +277,7 @@ class Distortion(ReferenceType):
         #refcat = RefCat.matched_cat
 
         # For now rely on alignment data from siaf (this will probably need an update?)
-        siaf_data = siaf.RomanSiaf().read_roman_siaf()
+        siaf_data = pysiaf.siaf.Siaf().read_roman_siaf()
         aperture = siaf_data[f'{detector}_FULL']
 
         # Find the shift between (x_sci, y_sci) = (0, 0) and the reference location.
@@ -199,8 +286,8 @@ class Distortion(ReferenceType):
 
         # Create models, we can initialize at 0 or at the SIAF values.
         if init_as_siaf:
-            x_for, y_for = siaf.get_distortion_coeffs(f'{detector}_FULL')
-            x_inv, y_inv = siaf.get_distortion_coeffs(f'{detector}_FULL', inverse=True)
+            x_for, y_for = pysiaf.siaf.Siaf.get_distortion_coeffs(f'{detector}_FULL')
+            x_inv, y_inv = pysiaf.siaf.Siaf.get_distortion_coeffs(f'{detector}_FULL', inverse=True)
             # Models use initial models from SIAF
             sci2idl_x = Polynomial2D(degree=degree, **x_for)
             sci2idl_y = Polynomial2D(degree=degree, **y_for)
@@ -272,11 +359,25 @@ class Distortion(ReferenceType):
         self.data = index_shift & index_shift | x_center & y_center | \
             core_model | v2_ref & v3_ref
 
-    def save_file(self):
-        distortion_file = rds.DistortionRef()
-        distortion_file['coordinate_distortion_transform'] = self.data
-        distortion_file['meta'] = self.meta
-        # Add in the meta data and history to the ASDF tree.
-        af = asdf.AsdfFile()
-        af.tree = {'roman': distortion_file}
-        af.write_to(self.outfile)
+    def calculate_error(self):
+        """
+        Abstract method not applicable.
+        """
+        pass
+
+    def update_data_quality_array(self):
+        """
+        Abstract method not utilized.
+        """
+        pass
+
+    def populate_datamodel_tree(self):
+        """
+        Build the Roman datamodel tree for the detector status reference.
+        """
+        distortion_datamodel_tree = DistortionRefModel()
+        distortion_datamodel_tree["meta"] = self.meta_data.export_asdf_meta()
+        distortion_datamodel_tree['coordinate_distortion_transform'] = self.data
+
+        return distortion_datamodel_tree
+    
